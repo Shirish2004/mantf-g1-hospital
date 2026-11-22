@@ -1,0 +1,29 @@
+pick_place:
+  ros__parameters:
+    base_source: ground_truth
+    arm: right
+    control_rate: 50.0
+    nav_timeout: 120.0
+    pick_location: theatre_instrument_table
+    place_location: scrub_room
+    instrument: scalpel
+    place_height: 0.08
+    place_approach: 0.14
+    carry_pos: [0.22, -0.14, 0.20]
+    ready_pose: [0.0, 0.0, 0.0,
+                 0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0,
+                 0.0, -0.3, 0.0, 0.0, 0.0, 0.0, 0.0]
+    skills:
+      rate: 50.0
+      pre_dist: 0.10
+      lift: 0.12
+      retreat: 0.08
+      above: 0.12
+      above_back: 0.05
+      approach_speed: 0.06
+      lift_speed: 0.06
+      close_time: 1.0
+      settle_time: 0.6
+      straighten_min_deg: 2.0
+      ik_tol: 0.02
+      verify_dist: 0.09

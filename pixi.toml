@@ -1,0 +1,43 @@
+[workspace]
+name = "mantf-g1-hospital"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[activation]
+scripts = ["scripts/activate.sh"]
+
+[dependencies]
+python = "3.10.*"
+pip = "*"
+numpy = "*"
+scipy = "*"
+matplotlib = "*"
+pyyaml = "*"
+py-opencv = "*"
+pillow = "*"
+pinocchio = "*"
+pytest = "*"
+
+[pypi-dependencies]
+torch = ">=2.2"
+py_trees = ">=2.2"
+onnxruntime = ">=1.17"
+colcon-common-extensions = "*"
+lark = "*"
+catkin-pkg = "*"
+empy = "==3.3.4"
+osrf-pycommon = "*"
+netifaces = "*"
+psutil = "*"
+typeguard = "*"
+packaging = "*"
+
+[tasks]
+nav = "python -m mantf_g1_bridge.nav_node --ros-args -p map_yaml:=$MANTF_G1_MAP"
+mission = "python -m mantf_g1_bridge.pick_place_node --ros-args -p config:=$MANTF_G1_ROOT/config/pick_place.yaml"
+build = "bash scripts/build_ros_overlay.sh"
+test = "python -m pytest -q -p no:launch_testing -p no:launch_ros tests"
+demo = "python scripts/demo_planner.py"
+setup = "bash scripts/install_global_env.sh"
+sim = "bash scripts/run_mujoco_sim.sh"
+isaac = "bash scripts/run_isaac_62.sh"
