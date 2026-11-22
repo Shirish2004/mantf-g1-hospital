@@ -30,9 +30,10 @@ from sensor_msgs.msg import LaserScan, PointCloud2
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 
-from .astar import closest_index, lookahead_point, path_length, plan_path
+from .astar import path_length, plan_path
 from .occupancy import GridMap
-from .pure_pursuit import PurePursuit
+from .local_planner import LocalPlanner
+from .pure_pursuit import PurePursuit, safety_filter
 
 try:
     from sensor_msgs_py import point_cloud2
@@ -108,6 +109,10 @@ class MantfNav(Node):
         p("status_topic", "/mantf/status")
         p("publish_path", True)
         p("save_checkpoint", "")
+        p("use_safety_filter", True)
+        p("safety_stop", 0.45)
+        p("safety_slow", 1.6)
+        p("use_mantf", True)
         g = lambda n: self.get_parameter(n).value  # noqa: E731
         self.g = g
 
@@ -132,11 +137,14 @@ class MantfNav(Node):
         self._global_path = None
         self._local_path = None
         self._local_path_time = 0.0
-        self._last_train_time = 0.0
-        self._last_signature = None
-        self._real_frames = 0
         self._dynamic_cells = 0
         self._state = "idle"
+        self.local_planner = None
+        self._fallback_planner = LocalPlanner(None, window_radius=g("window_radius"),
+                                              robot_radius=g("robot_radius"),
+                                              static_margin=g("safety_margin"),
+                                              dynamic_margin=g("dynamic_margin"))
+        self._planner_stats = {}
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -178,7 +186,8 @@ class MantfNav(Node):
         self.create_timer(0.5, self._status_timer)
         self.create_timer(0.5, self._check_pose_timer)
 
-        threading.Thread(target=self._init_model, daemon=True).start()
+        if g("use_mantf"):
+            threading.Thread(target=self._init_model, daemon=True).start()
         signal.signal(signal.SIGINT, self._sigint)
         signal.signal(signal.SIGTERM, self._sigint)
         self.get_logger().info(f"mantf_nav up: map_source={g('map_source')} pose={src} "
@@ -344,15 +353,28 @@ class MantfNav(Node):
         if pts.size:
             self._mark_points(pts.astype(np.float32), self._sensor_transform(msg.header.frame_id))
 
-    def _nearest_dynamic(self, center, sub, max_dist=2.5):
-        if sub is None or not sub.data.any():
+    def _nearest_dynamic(self, pose, radius=2.0):
+        if self.static_map is None:
             return None
-        rr, cc = np.nonzero(sub.data)
-        wx, wy = sub.grid_to_world(rr, cc)
-        d = (wx - center[0]) ** 2 + (wy - center[1]) ** 2
-        k = int(np.argmin(d))
-        if math.sqrt(float(d[k])) > max_dist:
+        m = self.static_map
+        r0, c0 = m.world_to_index(pose[0], pose[1])
+        n = int(radius / m.resolution)
+        ra, rb = max(0, r0 - n), min(m.height, r0 + n + 1)
+        ca, cb = max(0, c0 - n), min(m.width, c0 + n + 1)
+        if ra >= rb or ca >= cb:
             return None
+        ttl = int(float(self.g("dynamic_ttl")) * 1e9)
+        with self.map_lock:
+            age = time.monotonic_ns() - self.dynamic_last[ra:rb, ca:cb]
+        rr, cc = np.nonzero((age >= 0) & (age < ttl))
+        if rr.size == 0:
+            return None
+        wx, wy = m.grid_to_world(rr + ra, cc + ca)
+        d = (wx - pose[0]) ** 2 + (wy - pose[1]) ** 2
+        near = d > (0.5 * float(self.g("robot_radius"))) ** 2
+        if not near.any():
+            return None
+        k = int(np.argmin(np.where(near, d, np.inf)))
         return (float(wx[k]), float(wy[k]))
 
     # ------------------------------------------------------------------ planner model
@@ -457,6 +479,9 @@ class MantfNav(Node):
                     continue
                 path = self._current_path()
                 cmd = self.controller.command(pose, path, dt=dt, distance_to_goal=dist)
+                if bool(self.g("use_safety_filter")):
+                    cmd = safety_filter(cmd, pose, self._nearest_dynamic(pose), stop=float(self.g("safety_stop")),
+                                        slow=float(self.g("safety_slow")), max_vy=float(self.g("max_vy")))
                 self._publish_cmd(cmd)
                 if bool(self.g("publish_path")) and path:
                     self._publish_path(path)
@@ -510,43 +535,28 @@ class MantfNav(Node):
                 time.sleep(0.1)
                 continue
 
-            lx, ly = lookahead_point(gp, pose[0], pose[1], float(self.g("local_goal_lookahead")))
-            d = math.hypot(lx - pose[0], ly - pose[1])
-            maxd = float(self.g("window_radius")) * 0.80
-            if d > maxd and d > 1e-6:
-                lx = pose[0] + (lx - pose[0]) * maxd / d
-                ly = pose[1] + (ly - pose[1]) * maxd / d
-
             with self.map_lock:
                 static = self.static_map
             dyn = self._dynamic_mask()
-            if static is None or dyn is None:
+            if static is None:
                 time.sleep(0.1)
                 continue
-            r = float(self.g("window_radius"))
-            ssub = static.subgrid(pose[0], pose[1], r)
-            dsub = dyn.subgrid(pose[0], pose[1], r)
-            occ = (ssub.inflated(float(self.g("robot_radius")) + float(self.g("safety_margin"))) |
-                   dsub.inflated(float(self.g("robot_radius")) + float(self.g("dynamic_margin"))))
-            local = GridMap(occ, ssub.resolution, ssub.origin, ssub.yaw)
-            other = self._nearest_dynamic(pose[:2], dsub)
-
-            local_path = None
             with self.model_lock:
-                if self.model is not None:
-                    self.model.set_local_grid(local.data, pose[:2], local.origin)
-                    sig = self.model.grid_signature()
-                    train = (self._real_frames == 0 or now - self._last_train_time > float(self.g("retrain_period")))
-                    if train:
-                        epochs = int(self.g("warmup_epochs")) if self._real_frames == 0 else int(self.g("train_epochs"))
-                        self.model.train_online(epochs, other_world=other)
-                        self._last_train_time = time.monotonic()
-                        self._last_signature = sig
-                        self._real_frames += 1
-                    local_path = self.model.plan_local((lx, ly), other_world=other)
-            if local_path is None or len(local_path) < 2:
-                i = closest_index(gp, pose[0], pose[1])
-                local_path = gp[i:]
+                if self.local_planner is None and self.model is not None:
+                    self.local_planner = LocalPlanner(
+                        self.model, window_radius=float(self.g("window_radius")),
+                        robot_radius=float(self.g("robot_radius")),
+                        static_margin=float(self.g("safety_margin")),
+                        dynamic_margin=float(self.g("dynamic_margin")),
+                        lookahead=float(self.g("local_goal_lookahead")),
+                        warmup_epochs=int(self.g("warmup_epochs")),
+                        train_epochs=int(self.g("train_epochs")),
+                        retrain_period=float(self.g("retrain_period")))
+                lp = self.local_planner or self._fallback_planner
+                local_path, _ = lp.step(pose, gp, static, dyn)
+                if lp.blocked:
+                    last_global = 0.0
+                self._planner_stats = dict(lp.stats)
             with self.path_lock:
                 self._local_path = local_path
                 self._local_path_time = time.monotonic()
@@ -601,6 +611,7 @@ class MantfNav(Node):
             "dynamic_cells": self._dynamic_cells,
             "local_points": len(lp) if lp else 0,
             "global_points": len(gp) if gp else 0,
+            "planner": self._planner_stats,
         }
         self.pub_status.publish(String(data=json.dumps(status)))
 

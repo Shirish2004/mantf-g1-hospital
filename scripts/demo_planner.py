@@ -9,7 +9,7 @@ import yaml
 from mantf_g1_bridge.astar import path_length, plan_path
 from mantf_g1_bridge.local_planner import LocalPlanner
 from mantf_g1_bridge.occupancy import GridMap
-from mantf_g1_bridge.pure_pursuit import PurePursuit
+from mantf_g1_bridge.pure_pursuit import PurePursuit, safety_filter
 
 LOC = os.path.join(os.environ.get("HG1_ROOT", ""), "ros2_ws/src/hospital-sim-ros2/g1_mission/config/locations.yaml")
 
@@ -37,6 +37,7 @@ def main():
     ap.add_argument("--goal", default="pre_op")
     ap.add_argument("--no-mantf", action="store_true")
     ap.add_argument("--no-walkers", action="store_true")
+    ap.add_argument("--no-safety", action="store_true")
     ap.add_argument("--max-time", type=float, default=120.0)
     ap.add_argument("--out", default="demo_planner.png")
     a = ap.parse_args()
@@ -81,6 +82,11 @@ def main():
         if dist < 0.3:
             break
         vx, vy, wz = pp.command(pose, path, dt=dt, distance_to_goal=dist)
+        if not a.no_safety and people:
+            px, py = min(people, key=lambda q: math.hypot(q[0] - pose[0], q[1] - pose[1]))
+            d = math.hypot(px - pose[0], py - pose[1])
+            edge = (pose[0] + (px - pose[0]) * (d - 0.25) / d, pose[1] + (py - pose[1]) * (d - 0.25) / d)
+            vx, vy, wz = safety_filter((vx, vy, wz), pose, edge)
         c, sn = math.cos(pose[2]), math.sin(pose[2])
         pose = [pose[0] + (c * vx - sn * vy) * dt, pose[1] + (sn * vx + c * vy) * dt, pose[2] + wz * dt]
         trail.append(tuple(pose[:2]))

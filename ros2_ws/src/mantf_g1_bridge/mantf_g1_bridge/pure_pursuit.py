@@ -57,3 +57,23 @@ class PurePursuit:
         wz = max(lwz - mw, min(lwz + mw, wz))
         self._last = (vx, vy, wz)
         return (vx, vy, wz)
+
+
+def safety_filter(cmd, pose, obstacle, stop=0.45, slow=1.6, max_vy=0.3, back=0.15):
+    if obstacle is None:
+        return cmd
+    vx, vy, wz = cmd
+    c, s = math.cos(pose[2]), math.sin(pose[2])
+    wx, wy = obstacle[0] - pose[0], obstacle[1] - pose[1]
+    ox, oy = c * wx + s * wy, -s * wx + c * wy
+    d = math.hypot(ox, oy)
+    if d >= slow or ox < -0.1:
+        return cmd
+    k = max(0.0, min(1.0, (d - stop) / (slow - stop)))
+    if ox > 0.0 and vx > 0.0:
+        vx *= k
+    side = -1.0 if oy > 0.0 else 1.0
+    vy = max(-max_vy, min(max_vy, vy * k + side * (1.0 - k) * max_vy))
+    if d < stop:
+        vx = min(vx, 0.0) - back * (ox / max(d, 1e-6))
+    return (vx, vy, wz)

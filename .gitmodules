@@ -1,0 +1,3 @@
+[submodule "mantf"]
+	path = mantf
+	url = https://github.com/gatetub/mantf.git

@@ -44,3 +44,7 @@ mantf_nav:
     status_topic: /mantf/status
     publish_path: true
     save_checkpoint: ""
+    use_safety_filter: true
+    safety_stop: 0.45
+    safety_slow: 1.6
+    use_mantf: true
