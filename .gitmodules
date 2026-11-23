@@ -1,3 +1,8 @@
 [submodule "mantf"]
 	path = mantf
 	url = https://github.com/gatetub/mantf.git
+	branch = main
+[submodule "WardZero"]
+	path = WardZero
+	url = https://github.com/Bkrakshith/hospital-sim.git
+	branch = v3.1

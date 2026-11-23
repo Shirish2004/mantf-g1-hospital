@@ -1,0 +1,280 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Map
+      Name: Hospital map
+      Topic: {Value: /mantf/map, Durability Policy: Transient Local}
+      Color Scheme: map
+      Enabled: true
+    - Class: rviz_default_plugins/Map
+      Name: Explored (learned from lidar)
+      Topic: {Value: /mantf/explored}
+      Color Scheme: costmap
+      Alpha: 0.6
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: g1 path (Eq. 11)
+      Topic: {Value: /mantf/path}
+      Color: 255; 40; 40
+      Line Style: Billboards
+      Line Width: 0.06
+      Enabled: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: People (dynamic obstacles)
+      Topic: {Value: /mantf/walkers_markers}
+      Enabled: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Fleet viewpoints, goals, labels
+      Topic: {Value: /mantf/fleet_markers}
+      Enabled: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Shared 3D map (voxels)
+      Topic: {Value: /mantf/map3d}
+      Style: Boxes
+      Size (m): 0.1
+      Color Transformer: AxisColor
+      Axis: Z
+      Alpha: 0.5
+      Decay Time: 0
+      Enabled: false
+    - Class: rviz_default_plugins/Path
+      Name: g1 trail
+      Topic: {Value: /mantf/g1/trail}
+      Color: 230; 40; 40
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k1 trail
+      Topic: {Value: /mantf/k1/trail}
+      Color: 30; 120; 230
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k2 trail
+      Topic: {Value: /mantf/k2/trail}
+      Color: 250; 160; 30
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k3 trail
+      Topic: {Value: /mantf/k3/trail}
+      Color: 200; 60; 200
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k1 path (Eq. 11)
+      Topic: {Value: /mantf/k1/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k1 (kinematic G1)
+      Description Topic: {Value: /k1/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k1
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k2 path (Eq. 11)
+      Topic: {Value: /mantf/k2/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k2 (kinematic G1)
+      Description Topic: {Value: /k2/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k2
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k3 path (Eq. 11)
+      Topic: {Value: /mantf/k3/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k3 (kinematic G1)
+      Description Topic: {Value: /k3/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k3
+      Enabled: true
+
+    - Class: rviz_default_plugins/RobotModel
+      Name: G1
+      Description Topic: {Value: /robot_description}
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k4 trail
+      Topic: {Value: /mantf/k4/trail}
+      Color: 60; 200; 60
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k4 path (Eq. 11)
+      Topic: {Value: /mantf/k4/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k4 (kinematic G1)
+      Description Topic: {Value: /k4/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k4
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k5 trail
+      Topic: {Value: /mantf/k5/trail}
+      Color: 200; 200; 40
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k5 path (Eq. 11)
+      Topic: {Value: /mantf/k5/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k5 (kinematic G1)
+      Description Topic: {Value: /k5/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k5
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k6 trail
+      Topic: {Value: /mantf/k6/trail}
+      Color: 40; 40; 230
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k6 path (Eq. 11)
+      Topic: {Value: /mantf/k6/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k6 (kinematic G1)
+      Description Topic: {Value: /k6/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k6
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k7 trail
+      Topic: {Value: /mantf/k7/trail}
+      Color: 230; 120; 30
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k7 path (Eq. 11)
+      Topic: {Value: /mantf/k7/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k7 (kinematic G1)
+      Description Topic: {Value: /k7/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k7
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k8 trail
+      Topic: {Value: /mantf/k8/trail}
+      Color: 30; 160; 250
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k8 path (Eq. 11)
+      Topic: {Value: /mantf/k8/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k8 (kinematic G1)
+      Description Topic: {Value: /k8/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k8
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k9 trail
+      Topic: {Value: /mantf/k9/trail}
+      Color: 200; 60; 200
+      Line Width: 0.04
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/Path
+      Name: k9 path (Eq. 11)
+      Topic: {Value: /mantf/k9/path}
+      Color: 255; 0; 255
+      Line Width: 0.05
+      Line Style: Billboards
+      Enabled: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: k9 (kinematic G1)
+      Description Topic: {Value: /k9/robot_description, Durability Policy: Transient Local}
+      TF Prefix: k9
+      Enabled: true
+    - Class: rviz_default_plugins/LaserScan
+      Name: 2D lidar (/scan)
+      Topic: {Value: /scan, Reliability Policy: Best Effort}
+      Size (m): 0.06
+      Color Transformer: FlatColor
+      Color: 255; 0; 255
+      Enabled: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: 3D lidar (/livox/lidar)
+      Topic: {Value: /livox/lidar, Reliability Policy: Best Effort}
+      Size (m): 0.03
+      Style: Points
+      Color Transformer: AxisColor
+      Axis: Z
+      Decay Time: 0.5
+      Enabled: true
+    - Class: rviz_default_plugins/Odometry
+      Name: Ground truth
+      Topic: {Value: /sim/ground_truth}
+      Keep: 1
+      Shape: {Value: Arrow}
+      Enabled: false
+    - Class: rviz_default_plugins/Image
+      Name: RGB
+      Topic: {Value: /g1/head_camera/image_raw, Reliability Policy: Best Effort}
+      Enabled: true
+    - Class: rviz_default_plugins/Image
+      Name: Depth
+      Topic: {Value: /g1/head_camera/depth, Reliability Policy: Best Effort}
+      Normalize Range: true
+      Enabled: true
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: false
+  Global Options:
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/SetGoal
+      Topic: {Value: /goal_pose}
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Target Frame: map
+      Distance: 26
+      Pitch: 1.05
+      Yaw: 4.71
+      Focal Point: {X: 18.5, Y: -13.5, Z: 0}
+Window Geometry:
+  Width: 1600
+  Height: 950

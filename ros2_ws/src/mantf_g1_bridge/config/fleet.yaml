@@ -1,0 +1,38 @@
+mantf_fleet:
+  ros__parameters:
+    robots: ["g1:sim", "k1:kin:25.93,-12.45,3.1416", "k2:kin:15.93,-16.45,1.5708"]   # id:sim | id:kin:x,y,yaw
+    explore: true                 # robots without a goal explore (frontiers, shared map)
+    workspace: [18.5, -14.5, 28.0]  # cx, cy, side [m] of the one field (surgical wing)
+    robot_radius: 0.32
+    other_radius: 0.25            # a person
+    n_rays: 256                   # N per robot (Alg. 1 l.5)
+    m: 12                         # stratified samples per ray
+    ray_max: 8.0
+    rows: 3000                    # sample pairs per robot per round
+    epochs: 5                     # j per round
+    warmup_epochs: 30             # first round
+    frame_buffer: 20              # memory M frames mixed into every batch
+    horizon: 5.0                  # m, local viewpoint candidates (sensor range); wider only when none
+    fourier_scale: 1.0            # x mantf's Fourier feature frequencies (B); >1 resolves thinner walls
+    replan_period: 0.3            # s per call; calls go round-robin g1, k1, k2, g1, ...
+    control_rate: 20.0
+    goal_tolerance: 0.35
+    yaw_tolerance: 0.45
+    lookahead: 0.7
+    max_v: 0.75
+    max_vy: 0.35
+    max_w: 0.9
+    min_vx: 0.36                  # the placeholder policy does not move below this
+    guard_margin: 0.10            # m kept beyond the G1 footprint (front 0.46, sides 0.34, back 0.30 m)
+    guard_horizon: 1.2            # s of straight motion checked
+    obstacle_min_z: 0.12
+    obstacle_max_z: 1.8
+    episode_timeout: 600.0
+    map_period: 20.0
+    video: true
+    video_fps: 10.0
+    device: auto
+    runs_dir: ""                  # default $MANTF_G1_ROOT/runs/fleet
+    tensorboard: true
+    publish_map_odom: true
+    diag_every: 5

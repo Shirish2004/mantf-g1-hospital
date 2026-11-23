@@ -90,11 +90,12 @@ class GridMap:
         ox, oy = self.corner_to_world(r0, c0)
         return GridMap(out, self.resolution, (ox, oy), self.yaw)
 
-    def nearest_free(self, x, y, max_radius=3.0, min_clearance=None):
+    def nearest_free(self, x, y, max_radius=3.0, min_clearance=None, clear=None):
+        if clear is None:
+            clear = self.clearance()
         if not self.occupied(x, y):
-            if min_clearance is None or self.clearance_at(x, y) >= min_clearance:
+            if min_clearance is None or self.clearance_at(x, y, clear) >= min_clearance:
                 return (x, y)
-        clear = self.clearance()
         r0, c0 = self.world_to_index(x, y)
         for radius in (1.0, 2.0, max(3.0, max_radius)):
             n = max(2, int(radius / self.resolution))
@@ -115,10 +116,12 @@ class GridMap:
                 return (float(px[k]), float(py[k]))
         return None
 
-    def clearance_at(self, x, y):
+    def clearance_at(self, x, y, clear=None):
         r, c = self.world_to_index(x, y)
         if not self.inside(r, c):
             return 0.0
+        if clear is not None:
+            return float(clear[r, c])
         return float(distance_transform_edt(~self.data)[r, c] * self.resolution)
 
     def coarsen(self, factor):
@@ -173,3 +176,22 @@ def merge(*maps: GridMap) -> GridMap:
             raise ValueError("cannot merge maps with different shapes")
         data |= m.data
     return GridMap(data, base.resolution, base.origin, base.yaw)
+
+
+def raycast(grid, x, y, yaw, beams=360, rmax=8.0, discs=None, disc_r=0.25):
+    ang = np.linspace(-math.pi, math.pi, beams, endpoint=False)
+    steps = np.arange(0.1, rmax, grid.resolution * 0.8)
+    wx = x + np.cos(ang + yaw)[:, None] * steps[None]
+    wy = y + np.sin(ang + yaw)[:, None] * steps[None]
+    r, c = grid.world_to_grid(wx, wy)
+    r, c = np.floor(r).astype(int), np.floor(c).astype(int)
+    inside = (r >= 0) & (r < grid.height) & (c >= 0) & (c < grid.width)
+    hit = ~inside
+    hit[inside] = grid.data[r[inside], c[inside]]
+    if discs is not None and len(discs):
+        d = np.asarray(discs, float)
+        dd = np.min((wx[..., None] - d[:, 0]) ** 2 + (wy[..., None] - d[:, 1]) ** 2, axis=-1)
+        hit |= dd < disc_r ** 2
+    first = np.where(hit.any(axis=1), hit.argmax(axis=1), -1)
+    ranges = np.where(first >= 0, steps[np.clip(first, 0, None)], np.inf)
+    return ang, ranges

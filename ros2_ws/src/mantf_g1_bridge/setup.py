@@ -21,11 +21,14 @@ setup(
     maintainer_email="shirish@example.com",
     description="mantf planner and pick/place mission for the G1 in the WardZero hospital",
     license="Apache-2.0",
-    tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "mantf_nav = mantf_g1_bridge.nav_node:main",
+            "fleet = mantf_g1_bridge.fleet_node:main",
             "pick_place = mantf_g1_bridge.pick_place_node:main",
+            "walkers = mantf_g1_bridge.walkers_node:main",
+            "goto = mantf_g1_bridge.goto:main",
+            "sensor_viewer = mantf_g1_bridge.sensor_viewer:main",
+            "kinematic_sim = mantf_g1_bridge.kinematic_sim:main",
         ],
     },
 )

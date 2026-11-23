@@ -1,0 +1,5 @@
+# Speed zones for simulation runs: WardZero's clinical caps (0.4-0.6 m/s) are lifted so the placeholder policy,
+# which loses ~0.13 m/s of every command, can walk at ~0.6 m/s. The controller still clips to its policy limits.
+frame: map
+manual_cap: 0.8
+zones: []

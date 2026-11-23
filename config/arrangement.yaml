@@ -1,0 +1,7 @@
+# Start and goal of every agent: a WardZero location / spawn name, or [x, y, yaw] in the map (= sim world) frame.
+# The first robot is the simulated G1 (MuJoCo / Isaac); the others are kinematic G1s. Add or remove k<i> freely.
+# g1 and k1 cross in the surgical corridor; k2 goes from the scrub room into the theatre.
+robots:
+  g1: {start: corridor_west, goal: pacu}
+  k1: {start: corridor_theatre, goal: pre_op}
+  k2: {start: scrub_room, goal: theatre_door}

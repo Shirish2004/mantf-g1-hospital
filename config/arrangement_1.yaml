@@ -1,0 +1,3 @@
+# One agent: the paper's single-robot setting (the same fleet code, N = 1).
+robots:
+  g1: {start: corridor_west, goal: pacu}

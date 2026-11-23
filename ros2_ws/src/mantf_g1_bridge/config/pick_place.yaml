@@ -1,29 +1,36 @@
-pick_place:
-  ros__parameters:
-    base_source: ground_truth
-    arm: right
-    control_rate: 50.0
-    nav_timeout: 120.0
-    pick_location: theatre_instrument_table
-    place_location: scrub_room
-    instrument: scalpel
-    place_height: 0.08
-    place_approach: 0.14
-    carry_pos: [0.22, -0.14, 0.20]
-    ready_pose: [0.0, 0.0, 0.0,
-                 0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0,
-                 0.0, -0.3, 0.0, 0.0, 0.0, 0.0, 0.0]
-    skills:
-      rate: 50.0
-      pre_dist: 0.10
-      lift: 0.12
-      retreat: 0.08
-      above: 0.12
-      above_back: 0.05
-      approach_speed: 0.06
-      lift_speed: 0.06
-      close_time: 1.0
-      settle_time: 0.6
-      straighten_min_deg: 2.0
-      ik_tol: 0.02
-      verify_dist: 0.09
+rate: 50.0                   # Hz: behaviour-tree tick + /g1/auto/* stream
+station: theatre_instrument_table
+arm: right
+# Ready pose of the upper body (17: waist 3, left arm 7, right arm 7): upper arms back (shoulder pitch +0.3),
+# forearms raised (elbow -0.9): hands 0.91-1.13 m high and at most ~0.31 m in front of the pelvis, clear of the
+# instruments standing in the rack 0.40 m ahead (the policy default, all zeros, puts the fingertips 0.42 m ahead).
+ready_pose: [0.0, 0.0, 0.0,  0.3, 0.0, 0.0, -0.9, 0.0, 0.0, 0.0,  0.3, 0.0, 0.0, -0.9, 0.0, 0.0, 0.0]
+# Arms while walking (GoTo): the locomotion policy's default. The placeholder was trained with the arms there; with
+# the raised ready pose it drifted backwards at ~0.1 m/s and Nav2 aborted (measured 2026-09-30).
+walk_pose: [0.0, 0.0, 0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+at_station_tolerance: 0.30   # m: closer than this to the station -> skip Nav2, go straight to FineAlign
+handover_station: auto       # where Handover runs: auto = locations.yaml handover_station (hospital-sim-env/objects layout: the
+                             # surgeon side; stand-ins: the instrument table). The instrument is carried there.
+handover_reach: 0.70         # m: surgeon hand closer than this to the pelvis -> hand over from where we stand
+at_location_tolerance: 0.06  # m: At(<location>)? check before moving between the table and the surgeon side
+approach_back: 0.25          # m: Nav2 goals stop this far short of fine-align stations; FineAlign walks the rest
+nav_goal_timeout: 600.0      # s (the placeholder walks slowly and Nav2 needs a few recovery spins)
+repeat: false
+skills:
+  pick:       {impl: scripted, pre_dist: 0.10, lift: 0.12, retreat: 0.08, approach_speed: 0.06, close_time: 1.0}
+  retract:    {impl: scripted, distance: 0.12}
+  return_to_ready: {impl: scripted}
+  carry:      {impl: scripted, carry_pos: [0.22, -0.14, 0.20]}
+  fine_align: {impl: scripted, tol_xy: 0.07, tol_yaw: 0.08, timeout: 90.0, vx_forward_min: 0.34, max_vel: [0.40, 0.12, 0.3], diverge: 0.25}
+  locate:     {impl: scripted, max_range: 0.75}
+  place:      {impl: scripted, reach: 0.40, above: 0.10, lower_speed: 0.04, clearance: 0.012, rise: 0.12}
+task:
+  instrument: scissors
+  pick: theatre_instrument_table
+  place: pre_op_desk
+  home: corridor_theatre
+places:
+  pre_op_desk:     {x: 9.93,  y: -9.61,  yaw: -1.5708, fine_align: true, surface_z: 0.83, note: pre-op desk (south wall), from the north}
+  pacu_desk:       {x: 28.93, y: -9.61,  yaw: -1.5708, fine_align: true, surface_z: 0.83, note: PACU desk, from the north}
+  corridor_cart:   {x: 20.23, y: -13.60, yaw: -1.5708, fine_align: true, surface_z: 0.78, note: corridor supply cart, from the north}
+  preop_bedside_1: {x: 13.18, y: -5.34,  yaw: 1.5708,  fine_align: true, surface_z: 0.90, note: pre-op bedside table 1, from the south}

@@ -1,0 +1,27 @@
+title: mantf-g1-hospital
+description: Multi-agent mapping and motion planning with one physics-informed neural network (Active Neural Time Fields + mantf) for Unitree G1 humanoids in a hospital, in MuJoCo and Isaac Sim.
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag
+url: https://shirish2004.github.io
+baseurl: /mantf-g1-hospital
+color_scheme: light
+search_enabled: true
+heading_anchors: true
+aux_links:
+  "GitHub repository":
+    - "https://github.com/Shirish2004/mantf-g1-hospital"
+aux_links_new_tab: true
+back_to_top: true
+back_to_top_text: "Back to top"
+footer_content: "Active NTFields (Liu, Ni, Qureshi, arXiv 2410.09883) extended to many agents with the mantf model."
+callouts:
+  note:
+    title: Note
+    color: blue
+  warning:
+    title: Known limitation
+    color: yellow
+exclude:
+  - "*.sh"

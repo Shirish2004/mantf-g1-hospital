@@ -4,10 +4,9 @@
 
 MANTF_G1_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export MANTF_G1_ROOT
-: "${MANTF_ROOT:=$(cd "$MANTF_G1_ROOT/../mantf" 2>/dev/null && pwd)}"
-: "${HG1_ROOT:=$(cd "$MANTF_G1_ROOT/../WardZero" 2>/dev/null && pwd)}"
+source "$MANTF_G1_ROOT/scripts/paths.sh"
 export MANTF_ROOT HG1_ROOT
-export MANTF_G1_MAP="${MANTF_G1_MAP:-$HG1_ROOT/ros2_ws/src/hospital-sim-ros2/g1_navigation/maps/hospital_full.yaml}"
+export MANTF_G1_MAP="${MANTF_G1_MAP:-$HG1_ROOT/ros2_ws/src/hospital-sim-ros2/g1_navigation/maps/hospital_gt.yaml}"
 export PYTHONUNBUFFERED=1 PYTHONNOUSERSITE=1
 
 # Conda's libstdc++/libssl shadow the system libraries rclpy's DDS vendors link
@@ -25,6 +24,9 @@ source /opt/ros/humble/setup.bash
 # to use Fast DDS instead.
 export RMW_IMPLEMENTATION="${MANTF_RMW:-rmw_cyclonedds_cpp}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-2}"
+if [ "${MANTF_CYCLONE_LO:-1}" = 1 ] && [ -z "${CYCLONEDDS_URI:-}" ]; then
+    export CYCLONEDDS_URI="file://$MANTF_G1_ROOT/config/cyclonedds.xml"
+fi
 
 if [ -f "$HG1_ROOT/ros2_ws/install/setup.bash" ]; then
     source "$HG1_ROOT/ros2_ws/install/setup.bash"

@@ -1,0 +1,11 @@
+.pixi/
+ros2_overlay/build/
+ros2_overlay/install/
+ros2_overlay/log/
+logs/
+runs/
+*.png
+__pycache__/
+*.pyc
+!docs/assets/
+!docs/assets/**
