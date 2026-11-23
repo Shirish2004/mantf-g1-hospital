@@ -10,6 +10,8 @@ nav_order: 9
 | `WardZero/` or `mantf/` is empty | the submodules were not fetched: `git submodule update --init --recursive` |
 | `cannot import mantf from MANTF_ROOT=...` | mantf not found: fetch the submodule, or set `MANTF_ROOT` to your mantf checkout |
 | scripts use the wrong WardZero | `echo $HG1_ROOT`; the order is `$HG1_ROOT`, `./WardZero` (if built), `../WardZero` (`scripts/paths.sh`) |
+| the simulated G1 falls right after the start | WardZero's G1 controller died, so the G1 got no motor commands (Isaac log: `lowcmd rx 0`). The stack now stops with `ERROR: WardZero's G1 controller died` and shows the reason; it was `No module named 'onnxruntime'` when the controller ran with pixi's `PYTHONNOUSERSITE=1` (onnxruntime is in `~/.local`). Fixed in `run_stack.sh`; if it appears again: `/usr/bin/python3 -m pip install --user onnxruntime` |
+| `FELL` in `events.log` | the fleet saw the G1's pelvis below 0.45 m or tilted over 45 deg; its episode ends as `fell` and it gets no more commands |
 | `mg1: command not found` | run `pixi run setup` once, then open a new shell |
 | nodes do not see each other | the same `ROS_DOMAIN_ID` in every terminal; CycloneDDS is pinned to loopback (`MANTF_CYCLONE_LO=0` to undo) |
 | the G1 does not move after `mg1 goto` | `mg1 goto` requests STAND then NAV from WardZero's mode manager; in Isaac the e-stop heartbeat is started by the stack |

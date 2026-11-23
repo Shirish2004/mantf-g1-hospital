@@ -41,7 +41,8 @@ mg1 case greedy isaac
 mg1 case cooperative offline
 mg1 case greedy offline
 mg1 case cooperative mujoco --arrangement config/arrangement_1.yaml     # 1 agent
-mg1 case cooperative mujoco --arrangement config/arrangement_10.yaml    # 10 agents
+mg1 case cooperative isaac  --arrangement config/arrangement_4.yaml     # 4 agents (up to arrangement_5)
+for c in cooperative greedy; do mg1 case $c isaac --arrangement config/arrangement_4.yaml --timeout 1500; done   # both cases
 mg1 case greedy isaac --timeout 1200 --domain 22 -- --people 8 --no-rviz
 ```
 
@@ -67,7 +68,7 @@ mg1 robot                       # + G1 (MuJoCo), RViz, OpenCV sensor window
 mg1 robot --isaac
 mg1 stack                       # + people + fleet (MuJoCo)
 mg1 stack --isaac --domain 22   # Isaac on its own DDS domain (can run beside MuJoCo)
-mg1 stack --mode greedy --arrangement config/arrangement_10.yaml --people 8
+mg1 stack --mode greedy --arrangement config/arrangement_5.yaml --people 8
 mg1 stack mission               # + pick/place mission node
 ```
 
@@ -106,7 +107,7 @@ In RViz, "2D Goal Pose" sends a goal to the G1 (topic `/goal_pose`); `/<id>/goal
 
 ```bash
 mg1 offline                                              # config/arrangement.yaml, cooperative
-mg1 offline --mode greedy --arrangement config/arrangement_10.yaml --max-time 600
+mg1 offline --mode greedy --arrangement config/arrangement_5.yaml --max-time 600
 mg1 offline --robots g1@8.93,-12.45,0>26.93,-7.75,0 k1@25.93,-12.45,3.14   # k1 without a goal explores
 ```
 

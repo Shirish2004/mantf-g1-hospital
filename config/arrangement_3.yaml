@@ -1,0 +1,5 @@
+# Three agents: g1 and k1 cross in the surgical corridor; k2 goes from the scrub room into the theatre.
+robots:
+  g1: {start: corridor_west, goal: pacu}                              # the simulated G1
+  k1: {start: corridor_theatre, goal: pre_op}
+  k2: {start: scrub_room, goal: theatre_door}

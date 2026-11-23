@@ -39,7 +39,11 @@ for _ in $(seq 1 600); do
   sleep 2
 done
 [ -z "$RUN" ] && { echo "[case] the fleet did not start"; bash "$ROOT/scripts/stop_stack.sh"; exit 1; }
-for _ in $(seq 1 300); do [ -s "$RUN/train_log.csv" ] && [ "$(wc -l < "$RUN/train_log.csv")" -gt 3 ] && break; sleep 2; done
+# the fleet is up; give the simulator and the G1 controller a moment, then send the goals (agents start making
+# model calls once they have a goal)
+F=$(ls -td "$ROOT"/logs/nav_${SIM}_* 2>/dev/null | head -1)
+for _ in $(seq 1 60); do grep -q "one model" "$F/fleet.log" 2>/dev/null && break; sleep 2; done
+sleep 15
 echo "[case] run folder $RUN; sending goals"
 GP=()
 while read -r rid goal; do

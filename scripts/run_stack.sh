@@ -51,7 +51,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 bg() { local name="$1"; shift; setsid "$@" >"$LOG/$name.log" 2>&1 & PIDS+=($!); echo "[stack] $name (log $LOG/$name.log)"; }
 PIX=(pixi run --manifest-path "$ROOT/pixi.toml")
-WZ="source $HG1_ROOT/env.sh >/dev/null && source $ROOT/ros2_overlay/install/setup.bash && export ROS_DOMAIN_ID=$ROS_DOMAIN_ID CYCLONEDDS_URI=${CYCLONEDDS_URI:-} &&"
+# WardZero's nodes run on the system Python and may need packages from the user site (~/.local, e.g. onnxruntime for
+# the G1 controller): drop pixi's PYTHONNOUSERSITE / PYTHONPATH for them, or the controller dies and the G1 falls.
+WZ="unset PYTHONNOUSERSITE PYTHONPATH PYTHONHOME; source $HG1_ROOT/env.sh >/dev/null && source $ROOT/ros2_overlay/install/setup.bash && export ROS_DOMAIN_ID=$ROS_DOMAIN_ID CYCLONEDDS_URI=${CYCLONEDDS_URI:-} &&"
 
 ensure_isaac_assets() {
   local a="$HG1_ROOT/hospital-sim-env/isaac/assets"
@@ -101,6 +103,20 @@ case "$BACKEND" in
   kinematic)
     bg sim "${PIX[@]}" python -m mantf_g1_bridge.kinematic_sim --ros-args -p "start:=[$(spawn_xyz)]" -p map_yaml:="$MANTF_G1_MAP" ;;
 esac
+if [ "$BACKEND" != kinematic ]; then
+  # the G1 controller must load its walking policy, or the G1 has no motor commands and falls
+  ok=0
+  for _ in $(seq 1 120); do
+    if grep -q "controller_node.*process has died" "$LOG/wardzero.log" 2>/dev/null; then
+      echo "[stack] ERROR: WardZero's G1 controller died (see $LOG/wardzero.log):"
+      grep -m3 -E "Error|error" "$LOG/wardzero.log" | sed 's/^/          /'
+      echo "[stack] without it the G1 falls; fix the error above and start again"; exit 1
+    fi
+    grep -q "g1_controller\]: policy " "$LOG/wardzero.log" 2>/dev/null && { ok=1; break; }
+    sleep 2
+  done
+  [ "$ok" = 1 ] && echo "[stack] G1 controller up (policy loaded)" || echo "[stack] WARNING: the G1 controller has not reported its policy yet"
+fi
 sleep 5
 [ "$RVIZ" = 1 ] && bg rviz bash "$ROOT/scripts/rviz.sh"
 [ "$VIEWER" = 1 ] && bg viewer "${PIX[@]}" python -m mantf_g1_bridge.sensor_viewer --ros-args -p use_sim_time:=$SIMT \

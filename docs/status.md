@@ -20,7 +20,6 @@ Cooperative case, `--max-time 300`:
 |---|---|---|---|---|
 | 1 | 1 / 1 | 0 | 0 | 59 |
 | 3 | 3 / 3 | 0 | 0 | 39, 88, 102 |
-| 10 | 8 / 10 | 0 | 0 | 32 ... 185 (k4, k9: out of time at 300 s) |
 
 With 3 agents, cooperative vs greedy, path lengths (m): g1 29 vs 41, k1 24 vs 40, k2 28 vs 56 (earlier code
 version, same model).
@@ -48,6 +47,17 @@ From `math_log.csv` and `longrange_log.csv`, on frames the model has not trained
 | T(a, b) = T(b, a) | exact | exact (symmetric network) |
 | speed near an agent / alone | < 1 | 0.03-0.10 |
 | T vs true shortest path (rank correlation) | close to 1 | 0.80-0.95 |
+
+## Fixed after these measurements
+
+- **The simulated G1 fell at the start when launched with `mg1`.** WardZero's G1 controller could not import
+  `onnxruntime`, because pixi hides the user site-packages, where it is installed. With no motor commands the G1
+  collapsed. WardZero's nodes now start without pixi's Python settings, the stack checks that the controller loaded
+  its policy, and the fleet detects a fall.
+- **More than 5 agents** is no longer supported (the 10-agent runs blocked each other in the corridor). Arrangements
+  now go from 1 to 5 agents.
+- **Agents that reach their goal** now stop and leave the round-robin (N -> N - 1 calls), instead of helping others.
+- **Teammates in Isaac** are shown as G1 bodies instead of capsules.
 
 ## Known limitations
 

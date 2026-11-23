@@ -148,3 +148,31 @@ def test_physical_guard_turns_out_of_a_corner_it_cannot_back_out_of():
     (vx, vy, wz), _ = safe_velocity((0.0, 0.0, 0.0), (0, 0, 0), np.vstack((front, right)), min_move=0.36,
                                     margin=0.15, physical=True)
     assert vx >= 0.0 and (wz > 0 or vy > 0)
+
+
+def test_finished_agent_stops_and_leaves_the_calls(tmp_path):
+    torch = pytest.importorskip("torch")
+    from mantf_g1_bridge.fleet_core import Fleet
+    g = corridor()
+    dev = "cuda:0" if torch.cuda.is_available() else "cpu"
+    f = Fleet(str(tmp_path), (0.0, 0.0, 12.0), [("a", "kin", (-3.0, -3.0, 0.0)), ("b", "kin", (3.0, -3.0, 3.14)),
+                                                ("c", "kin", (-4.5, -4.5, 1.57))], g, dev, rows=600, warmup_epochs=5,
+              tensorboard=False, diag_every=0, explore=False)
+    for k, goal in (("a", (-2.0, -3.0, 0.0)), ("b", (2.0, -3.0, 0.0)), ("c", (-4.5, -3.0, 0.0))):
+        f.set_goal(k, goal)
+    f.scan_kin()
+    assert [f.round()["agent"] for _ in range(3)] == ["a", "b", "c"]
+    f.finish("b", True)                                # b reached its goal
+    pose_b = f.robots["b"].pose
+    calls = [f.round()["agent"] for _ in range(4)]
+    assert calls == ["a", "c", "a", "c"]               # N - 1 agents in the calls, same order
+    for _ in range(20):
+        f.step_kin(0.05)
+    assert np.allclose(f.robots["b"].pose, pose_b) and f.robots["b"].cmd == (0.0, 0.0, 0.0)   # it does not move any more
+
+
+def test_at_most_five_agents(tmp_path):
+    from mantf_g1_bridge.fleet_core import Fleet
+    robots = [(f"k{i}", "kin", (float(i), -3.0, 0.0)) for i in range(6)]
+    with pytest.raises(ValueError):
+        Fleet(str(tmp_path), (0.0, 0.0, 12.0), robots, corridor(), "cpu", tensorboard=False)

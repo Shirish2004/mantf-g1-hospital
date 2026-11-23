@@ -1,0 +1,4 @@
+# Two agents: the simulated G1 and one kinematic G1 cross each other in the surgical corridor.
+robots:
+  g1: {start: corridor_west, goal: pacu}                              # the simulated G1
+  k1: {start: corridor_theatre, goal: pre_op}

@@ -27,7 +27,7 @@ which patches `SimulationApp` (asset root -> the local 6.0 asset pack, extension
 |---|---|---|
 | lights | 0.8 m ceiling panels every 3.5 m over free floor wherever the stage has no light within 3 m | `MANTF_ISAAC_LIGHTS=0` |
 | people | one Isaac People character per `/mantf/people` entry, following the published pose while playing the walk cycle in place | `MANTF_ISAAC_PEOPLE=0` |
-| teammates | coloured capsule robots (white block = front) at the kinematic teammates' poses from `/mantf/fleet` | with people |
+| teammates | G1 bodies (the G1's 72 visual meshes from WardZero's Isaac G1, standing pose, no physics) with a coloured disc at their feet, at the kinematic teammates' poses from `/mantf/fleet` | with people |
 
 The Isaac lidar ray-casts a static snapshot of the collision geometry, so it does not see people or teammates. The
 G1 camera does see them, and the model and guard get their positions directly.

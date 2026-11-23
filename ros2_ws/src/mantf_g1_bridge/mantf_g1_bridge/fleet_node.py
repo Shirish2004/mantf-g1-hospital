@@ -110,6 +110,7 @@ class FleetNode(Node):
         self.fleet = Fleet(self.folder, list(g("workspace")), specs, self.gt, dev, **cfg)
         F = self.fleet
         self.pose_R, self.pose_z, self.pose_t = np.eye(3), 0.78, 0.0
+        self.fallen = False
         self.map_odom = None
         self.joint_names = g1_joints()
         self.tf = Buffer()
@@ -176,6 +177,14 @@ class FleetNode(Node):
         with self.fleet.lock:
             r.pose = (p.position.x, p.position.y, yaw_of(p.orientation))
         self.pose_R, self.pose_z, self.pose_t = _rot(p.orientation), p.position.z, time.monotonic()
+        tilt = math.degrees(math.acos(max(-1.0, min(1.0, self.pose_R[2, 2]))))
+        if (p.position.z < 0.45 or tilt > 45.0) and not self.fallen:
+            self.fallen = True
+            self.fleet.event(f"{self.sim_id}: FELL (pelvis z {p.position.z:.2f} m, tilt {tilt:.0f} deg); no more commands")
+            self.get_logger().error(f"{self.sim_id} fell (pelvis z {p.position.z:.2f} m, tilt {tilt:.0f} deg)")
+            if r.episode is not None:
+                self.fleet.finish(self.sim_id, False, "fell")
+                self._end_video(False)
 
     def _sensor_tf(self, frame):
         try:
@@ -269,7 +278,7 @@ class FleetNode(Node):
         F.step_kin(dt)
         if self.sim_id:
             r = F.robots[self.sim_id]
-            fresh = time.monotonic() - self.pose_t < 1.0
+            fresh = time.monotonic() - self.pose_t < 1.0 and not self.fallen
             if r.goal is not None or r.state == "exploring":
                 cmd, event = F.control(self.sim_id, dt) if fresh else ((0.0, 0.0, 0.0), None)
                 self._cmd(cmd)

@@ -15,9 +15,11 @@ call k -> agent (k mod N): shares x, y, lidar, plan  ->  one model trains on it 
 ```
 
 - One model, one shared 2-D and 3-D map, centralised round-robin calls (agent 1, 2, ..., N, 1, ...).
-- Two cases with the same model, sharing and requests: `cooperative` (arrival time + goal distance + others' plans)
+- Two cases with the same model and sharing: `cooperative` (arrival time + goal distance + others' plans)
   and `greedy` (straight for the agent's own goal).
-- 1 agent (the paper's case) up to 10 or more, each with its own start and goal (`config/arrangement*.yaml`).
+- 1 to 5 agents (one simulated G1 + up to 4 kinematic G1 teammates), each with its own start and goal
+  (`config/arrangement_1.yaml` ... `arrangement_5.yaml`). An agent that reaches its goal stops and leaves the calls
+  (N agents -> N - 1 calls per cycle); the others still see it as an obstacle.
 - People walk through the hospital; the model treats them as other agents. In Isaac they are animated characters,
   and ceiling lights are added where the stage has none.
 - Collision avoidance on the G1's real footprint. Contacts and close calls are measured for every agent.
@@ -66,8 +68,11 @@ mg1 case greedy mujoco
 mg1 case cooperative isaac       # -> runs/isaac/cooperative/arrangement/<time>/
 mg1 case greedy isaac
 mg1 case cooperative offline     # no simulator
-mg1 case cooperative mujoco --arrangement config/arrangement_1.yaml    # 1 agent
-mg1 case cooperative mujoco --arrangement config/arrangement_10.yaml   # 10 agents
+mg1 case cooperative mujoco --arrangement config/arrangement_1.yaml    # 1 agent (the paper's setting)
+mg1 case cooperative isaac  --arrangement config/arrangement_4.yaml    # 4 agents
+
+# both cases for one arrangement, one after the other:
+for c in cooperative greedy; do mg1 case $c isaac --arrangement config/arrangement_4.yaml --timeout 1500; done
 mg1 case greedy isaac --timeout 1200 --domain 22 -- --people 8 --no-rviz --no-viewer
 ```
 
@@ -77,7 +82,7 @@ Where each robot starts and where it must go is set in an *arrangement* file:
 # config/arrangement.yaml
 robots:
   g1: {start: corridor_west, goal: pacu}          # simulated G1 (MuJoCo / Isaac)
-  k1: {start: corridor_theatre, goal: pre_op}     # kinematic G1s (any number)
+  k1: {start: corridor_theatre, goal: pre_op}     # kinematic G1 teammates (up to 4)
   k2: {start: scrub_room, goal: theatre_door}
 ```
 
@@ -134,7 +139,7 @@ See [docs/results.md](docs/results.md).
 |---|---|
 | [Getting started](docs/getting-started.md) | requirements, install, first run |
 | [Commands](docs/commands.md) | every command and option, ROS topics and actions |
-| [Arrangements](docs/arrangements.md) | starts and goals, 1 / 3 / 10 agents |
+| [Arrangements](docs/arrangements.md) | starts and goals, 1 to 5 agents |
 | [How it works](docs/method.md) | the model, round-robin calls, viewpoints, two cases, collision avoidance, math checks |
 | [Results and outputs](docs/results.md) | every output file |
 | [Simulators](docs/simulators.md) | MuJoCo, Isaac 6.2 (lights, people), kinematic teammates |

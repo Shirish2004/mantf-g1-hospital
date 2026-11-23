@@ -18,7 +18,7 @@ robots:
   # k3: {start: [20.0, -12.4, 0.0], goal: sterile_store}
 ```
 
-Ready-made: `config/arrangement_1.yaml` (1 agent), `config/arrangement.yaml` (3), `config/arrangement_10.yaml` (10).
+Ready-made: `config/arrangement_1.yaml` ... `config/arrangement_5.yaml` (1 to 5 agents; at most 5).
 Every agent needs its own start and goal; keep them at least ~1 m from walls and ~2.5 m from each other.
 
 ## 2. Run a case
@@ -26,18 +26,18 @@ Every agent needs its own start and goal; keep them at least ~1 m from walls and
 ```bash
 mg1 case cooperative mujoco          # brings up MuJoCo + RViz + sensor window, sends every goal, waits, saves
 mg1 case greedy mujoco
-mg1 case cooperative isaac           # Isaac Sim 6.2 GUI, lights, walking people, teammates as capsule robots
+mg1 case cooperative isaac           # Isaac Sim 6.2 GUI, lights, walking people, teammates as G1 bodies
 mg1 case greedy isaac
 mg1 case cooperative offline         # no simulator (fast check)
 mg1 case greedy offline
-mg1 case cooperative mujoco --arrangement config/arrangement_10.yaml
+mg1 case cooperative isaac --arrangement config/arrangement_4.yaml
 ```
 
 Options: `--arrangement FILE`, `--timeout S` (default 900), `--domain N` (DDS domain), and anything after `--` goes
 to the stack (for example `-- --people 8 --no-rviz`).
 
 While a run is going: `mg1 status` (every agent's plan and (gx, gy)), RViz (paths, viewpoints, plan text above each
-robot, request circles), the OpenCV sensor window (G1 RGB | depth | lidar BEV with teammates and people).
+robot), the OpenCV sensor window (G1 RGB | depth | lidar BEV with teammates and people).
 
 ## 3. Where results go
 

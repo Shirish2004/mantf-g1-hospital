@@ -33,7 +33,8 @@ each robot's trajectory. Grey is the hospital, shown for reference only.*
   plans to it on the learned field.
 - **Two cases.** `cooperative`: arrival time + goal distance + the other agents' shared plans. `greedy`: straight for
   the agent's own goal.
-- **Any number of agents.** 1 (the paper's setting) to 10 or more, each with its own start and goal.
+- **1 to 5 agents.** One simulated G1 and up to 4 kinematic G1 teammates, each with its own start and goal. An
+  agent that reaches its goal stops and leaves the calls (N -> N - 1).
 - **People** walk through the hospital as dynamic obstacles. In Isaac they are animated characters.
 - **Everything is recorded:** every model call, every agent's lidar, trajectory, contacts, coverage and its own-view
   video of each goal, the G1's head-camera video, and the 2-D and 3-D maps.

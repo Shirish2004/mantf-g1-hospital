@@ -1,5 +1,6 @@
-"""Inside Isaac Sim (installed by run_sim_62.py): ceiling lights where the hospital stage has none nearby, and walking
-people that follow /mantf/people (the same people the fleet model gets as other agents).
+"""Inside Isaac Sim (installed by run_sim_62.py): ceiling lights where the hospital stage has none nearby, walking
+people that follow /mantf/people (the same people the fleet model gets as other agents), and the kinematic teammates
+as G1 bodies (the G1's visual meshes, no physics) at their poses from /mantf/fleet.
 
 MANTF_ISAAC_LIGHTS=0 / MANTF_ISAAC_PEOPLE=0 switch either off. MANTF_LIGHT_BOX="x0,y0,x1,y1" limits the new lights."""
 import math
@@ -21,6 +22,7 @@ ROOT = "/World/MantfPeople"
 LIGHTS = "/World/MantfLights"
 KIT_LUX_PER_M2, LIGHT_LEVEL = 130000 / 4.0 * 0.25, 0.12   # build_hospital.py
 SPACING, LIGHT_Z, PANEL, NEAREST = 3.5, 2.85, 0.8, 3.0
+PELVIS_Z = 0.79   # standing pelvis height of the G1
 
 
 def log(msg):
@@ -61,6 +63,7 @@ class Extras:
         self.people = []
         self.mates = {}
         self.mate_poses = {}
+        self._g1 = None
         self.walk = None
         self.lock = threading.Lock()
         self.sub = omni.kit.app.get_app().get_update_event_stream().create_subscription_to_pop(self.update)
@@ -153,32 +156,49 @@ class Extras:
         with self.lock:
             self.mate_poses = {k: r["pose"] for k, r in d.get("robots", {}).items() if r.get("kind") == "kin" and r.get("pose")}
 
+    def g1_visuals(self):
+        """The G1's visual meshes (no physics) and their transforms relative to the pelvis, from WardZero's Isaac G1."""
+        if self._g1 is None:
+            from pxr import Gf, Usd, UsdGeom
+            asset = os.path.join(os.environ.get("HG1_ROOT", ""), "g1-isaac-sim", "usd", "g1_29dof_brainco.usd")
+            st = Usd.Stage.Open(asset)
+            pelvis = st.GetPrimAtPath(f"{st.GetDefaultPrim().GetPath()}/Geometry/pelvis")
+            inv = UsdGeom.Xformable(pelvis).ComputeLocalToWorldTransform(Usd.TimeCode.Default()).GetInverse()
+            parts = []
+            for q in Usd.PrimRange(pelvis):
+                if q.GetTypeName() == "Mesh" and not any("Physics" in a for a in q.GetAppliedSchemas()):
+                    # the mesh keeps its own local transform through the reference; the wrapper places its parent link
+                    m = UsdGeom.Xformable(q).ComputeParentToWorldTransform(Usd.TimeCode.Default()) * inv
+                    parts.append((str(q.GetPath()), m))
+            self._g1 = (asset, parts)
+            log(f"teammate body: {len(parts)} visual meshes of {asset}")
+        return self._g1
+
     def move_mates(self, stage):
-        from pxr import Gf, UsdGeom
+        """Kinematic teammates as G1 bodies (visual meshes only, standing pose), placed at their fleet poses."""
+        from pxr import Gf, Sdf, UsdGeom
         with self.lock:
             poses = dict(self.mate_poses)
-        cols = [(0.12, 0.47, 0.9), (0.98, 0.63, 0.12), (0.78, 0.24, 0.78)]
+        cols = [(0.12, 0.47, 0.9), (0.98, 0.63, 0.12), (0.78, 0.24, 0.78), (0.24, 0.78, 0.24)]
         for k, (x, y, yaw) in poses.items():
             if k not in self.mates:
+                asset, parts = self.g1_visuals()
                 root = UsdGeom.Xform.Define(stage, f"/World/MantfTeammates/{k}")
                 ops = (root.AddTranslateOp(), root.AddRotateZOp())
-                c = cols[len(self.mates) % 3]
-                body = UsdGeom.Capsule.Define(stage, f"/World/MantfTeammates/{k}/body")
-                body.CreateRadiusAttr(0.22)
-                body.CreateHeightAttr(0.85)
-                body.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0.75))
-                body.CreateDisplayColorAttr([c])
-                head = UsdGeom.Sphere.Define(stage, f"/World/MantfTeammates/{k}/head")
-                head.CreateRadiusAttr(0.13)
-                head.AddTranslateOp().Set(Gf.Vec3d(0.05, 0, 1.45))
-                head.CreateDisplayColorAttr([(0.15, 0.15, 0.15)])
-                nose = UsdGeom.Cube.Define(stage, f"/World/MantfTeammates/{k}/front")
-                nose.CreateSizeAttr(0.12)
-                nose.AddTranslateOp().Set(Gf.Vec3d(0.24, 0, 1.0))
-                nose.CreateDisplayColorAttr([(1.0, 1.0, 1.0)])
+                for i, (path, m) in enumerate(parts):
+                    xf = UsdGeom.Xform.Define(stage, f"/World/MantfTeammates/{k}/g1_{i:02d}")
+                    xf.AddTransformOp().Set(m)
+                    # untyped prim: the reference brings the Mesh type, geometry and local transform
+                    stage.DefinePrim(f"/World/MantfTeammates/{k}/g1_{i:02d}/mesh").GetReferences().AddReference(
+                        asset, Sdf.Path(path))
+                disc = UsdGeom.Cylinder.Define(stage, f"/World/MantfTeammates/{k}/marker")
+                disc.CreateRadiusAttr(0.38)
+                disc.CreateHeightAttr(0.01)
+                disc.AddTranslateOp().Set(Gf.Vec3d(0, 0, -PELVIS_Z + 0.006))
+                disc.CreateDisplayColorAttr([cols[len(self.mates) % len(cols)]])
                 self.mates[k] = ops
-                log(f"teammate {k} shown")
-            self.mates[k][0].Set(Gf.Vec3d(x, y, 0.0))
+                log(f"teammate {k} shown as a G1")
+            self.mates[k][0].Set(Gf.Vec3d(x, y, PELVIS_Z))
             self.mates[k][1].Set(math.degrees(yaw))
 
     def load_walk(self):

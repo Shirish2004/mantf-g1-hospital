@@ -123,17 +123,20 @@ class Robot:
 
 
 class Fleet:
+    MAX_AGENTS = 5
     DEFAULTS = {"robot_radius": 0.32, "other_radius": 0.25, "n_rays": 256, "m": 12, "ray_max": 8.0, "rows": 3000,
                 "epochs": 5, "warmup_epochs": 30, "frame_buffer": 20, "grid_res": 0.1, "horizon": 5.0,
                 "lookahead": 0.7, "max_v": 0.75, "max_vy": 0.35, "max_w": 0.9, "min_vx": 0.36, "goal_tolerance": 0.35,
                 "yaw_tolerance": 0.45, "guard_margin": 0.10, "guard_horizon": 1.2, "plan_clearance": 0.42,
-                "explore": True, "mode": "cooperative", "help": True, "opportunity_range": 18.0, "tensorboard": True, "diag_every": 5, "voxel_res": 0.1, "fourier_scale": 1.0}
+                "explore": True, "mode": "cooperative", "help": False, "opportunity_range": 18.0, "tensorboard": True, "diag_every": 5, "voxel_res": 0.1, "fourier_scale": 1.0}
 
     def __init__(self, folder, workspace, robots, gt=None, device="cuda:0", **cfg):
         self.cfg = dict(self.DEFAULTS, **{k: v for k, v in cfg.items() if v is not None})
         c = self.cfg
         self.folder = folder
         os.makedirs(folder, exist_ok=True)
+        if not 1 <= len(robots) <= self.MAX_AGENTS:
+            raise ValueError(f"{len(robots)} agents: this project supports 1 to {self.MAX_AGENTS}")
         self.robots = {}
         for i, (rid, kind, pose) in enumerate(robots):
             r = Robot(rid, i, kind, c)
@@ -244,15 +247,21 @@ class Fleet:
         k = int(np.argmin(d))
         return tuple(c[k]) if d[k] < within else None
 
+    def active(self, r):
+        """An agent takes part in the calls while it has a goal (or explores without one). Once it has reached its
+        goal it stops, makes no more calls, and stays in the others' input as an obstacle."""
+        return r.goal is not None or (r.explore and r.state not in ("explored", "succeeded"))
+
     def round(self):
-        """One call: the next agent in turn (1, 2, ..., N, 1, ...) shares x, y, lidar and plan; the one model trains on
-        it and plans for it. N calls make one cycle."""
+        """One call: the next active agent in turn (1, 2, ..., N, 1, ...) shares x, y, lidar and plan; the one model
+        trains on it and plans for it. N active agents make one cycle of N calls; when one reaches its goal, N - 1."""
         ids = list(self.robots)
         rid = None
         for _ in range(len(ids)):
             k = ids[self.turn % len(ids)]
             self.turn += 1
-            if self.robots[k].scan is not None and self.robots[k].pose is not None:
+            q = self.robots[k]
+            if q.scan is not None and q.pose is not None and self.active(q):
                 rid = k
                 break
         if rid is None:
@@ -515,11 +524,14 @@ class Fleet:
             r.goal, r.path, r.viewpoint = None, None, None
             r.state = "succeeded" if ok else ("failed " + why).strip()
             r.episode = None
-            r.helper = ok and self.cfg["help"]
+            r.helper = False
+            r.path, r.viewpoint, r.gxy = None, None, None
         if ep is None:
             return None
         self._close_view(r, ok)
-        self.event(f"{rid}: {'reached' if ok else 'failed'} {r.goal_name or ep['goal']} {why}".strip())
+        n = sum(1 for q in self.robots.values() if self.active(q))
+        self.event(f"{rid}: {'reached' if ok else 'failed'} {r.goal_name or ep['goal']} {why}".strip()
+                   + f"; it stops, {n} agent(s) left in the calls")
         dur = self.t - ep["t0"]
         res = {"episode": ep["id"], "robot": rid, "success": ok, "reason": why, "goal": ep["goal"], "start": ep["start"],
                "time_s": round(dur, 2), "path_m": round(ep["dist"], 2), "mean_speed": round(ep["dist"] / max(dur, 1e-6), 3),

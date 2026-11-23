@@ -78,12 +78,10 @@ space, the straight-line distance is the optimistic estimate:
 | ... but no progress for 8 s | for 15 s, mapped free cells within 5 m by `T(q_i, c \| o) + T(c, goal_i \| o)`; then the goal again |
 | goal not yet reachable, `cooperative` | reachable frontier cell c minimising `T(q_i, c \| o) + \|c - goal_i\| + 6 exp(-\|c - v_j\|^2 / 8)`; `v_j` = viewpoints other agents shared |
 | goal not yet reachable, `greedy` | reachable frontier cell c minimising `\|c - goal_i\|`, ignoring arrival time and others' plans |
-| no goal (finished, helping) | reachable frontier cell minimising `T(q_i, c \| o) + claim(c) - 15 exp(-\|c - request\|^2 / 32)` |
 
 - **Reachable** means connected to the agent through mapped free space at least 0.72 m wide, so cells seen through
   a gap in a wall are excluded. Frontier cells also need 0.55 m clearance for the G1.
-- **Tried**: a frontier or waypoint viewpoint that gave no progress for 8 s is excluded for 90 s, and the agent posts
-  a request around itself.
+- **Tried**: a frontier or waypoint viewpoint that gave no progress for 8 s is excluded for 90 s.
 - **Opportunity**: when the model's path to the goal runs entirely through mapped free space, the switch to it is
   logged in `events.log`.
 - **Between calls**: an agent follows the plan from its last call; if the plan runs out first, it holds position and
@@ -94,12 +92,15 @@ space, the straight-line distance is the optimistic estimate:
   - Aiming at a far goal as soon as someone had seen it made the gradient point through unlearned walls.
   - The rule above fixes both.
 
-## Any number of agents
+## 1 to 5 agents
 
-The same code runs 1 agent (the paper's setting) up to 10 or more. The memory M holds at least 3 frames per agent
-(`frame_buffer = max(20, 3N)`), the workspace is fitted to all starts and goals (`scripts/arrangement.py`), and each
-agent is served every N x 0.3 s. Ready-made arrangements: `config/arrangement_1.yaml`, `config/arrangement.yaml`
-(3 agents), `config/arrangement_10.yaml`.
+The same code runs 1 agent (the paper's setting) up to 5: one simulated G1 plus up to 4 kinematic G1 teammates
+(`config/arrangement_1.yaml` ... `arrangement_5.yaml`). The memory M holds at least 3 frames per agent, and the
+workspace is fitted to all starts and goals (`scripts/arrangement.py`).
+
+**Reaching the goal.** When an agent reaches its goal, it stops: it gets no more commands, it is removed from the
+round-robin, and the model is called only for the agents still travelling (N -> N - 1 calls per cycle). Its position
+is still shared, so the model and the others' guards treat it as an obstacle.
 
 ## No collisions (execution, not part of the planner)
 
