@@ -1,0 +1,6 @@
+# Four agents: the 3-agent arrangement + k3 (from arrangement_10), each with its own start and goal.
+robots:
+  g1: {start: corridor_west, goal: pacu}                              # the simulated G1
+  k1: {start: corridor_theatre, goal: pre_op}
+  k2: {start: scrub_room, goal: theatre_door}
+  k3: {start: [14.12, -18.49, -2.62], goal: [30.00, -12.88, 0.0]}
