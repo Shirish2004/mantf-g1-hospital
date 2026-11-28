@@ -77,7 +77,8 @@ class FleetNode(Node):
             "scan_topic": "/scan", "cloud_topic": "/livox/lidar", "camera_topic": "/g1/head_camera/image_raw",
             "depth_topic": "/g1/head_camera/depth", "agents_topic": "/mantf/agents", "cmd_topic": "/g1/cmd_vel_nav",
             "robot_radius": 0.32, "other_radius": 0.25, "n_rays": 256, "m": 12, "ray_max": 8.0, "rows": 3000,
-            "epochs": 5, "warmup_epochs": 30, "frame_buffer": 20, "horizon": 5.0, "replan_period": 0.3, "fourier_scale": 1.0,
+            "epochs": 50, "warmup_epochs": 50, "frame_buffer": 20, "others_k": 6, "detect": True, "dyn_gap": 0.3,
+            "se2_horizon": 1.0, "sweep": True, "people_speed": 0.0, "people": 5, "seed": 0, "spread": 0.0, "horizon": 5.0, "replan_period": 0.3, "fourier_scale": 1.0,
             "control_rate": 20.0, "goal_tolerance": 0.35, "yaw_tolerance": 0.45, "lookahead": 0.7, "max_v": 0.75,
             "max_vy": 0.35, "max_w": 0.9, "min_vx": 0.36, "guard_margin": 0.10, "guard_horizon": 1.2,
             "obstacle_min_z": 0.12, "obstacle_max_z": 1.8, "episode_timeout": 600.0, "map_period": 20.0,
@@ -106,7 +107,8 @@ class FleetNode(Node):
         cfg = {k: g(k) for k in ("robot_radius", "other_radius", "n_rays", "m", "ray_max", "rows", "epochs",
                                  "warmup_epochs", "frame_buffer", "horizon", "lookahead", "max_v", "max_vy", "max_w",
                                  "min_vx", "goal_tolerance", "yaw_tolerance", "guard_margin", "guard_horizon",
-                                 "tensorboard", "diag_every", "explore", "mode", "help", "fourier_scale")}
+                                 "tensorboard", "diag_every", "explore", "mode", "help", "fourier_scale", "others_k",
+                                 "detect", "dyn_gap", "se2_horizon", "sweep", "people_speed", "people", "seed", "spread")}
         self.fleet = Fleet(self.folder, list(g("workspace")), specs, self.gt, dev, **cfg)
         F = self.fleet
         self.pose_R, self.pose_z, self.pose_t = np.eye(3), 0.78, 0.0
@@ -151,6 +153,7 @@ class FleetNode(Node):
         self.video = None
         self.vlock = threading.Lock()
         self.bev = None
+        self.cmap = None
         self.last_save = time.monotonic()
         self.running = True
         self.create_timer(1.0 / float(g("control_rate")), self._control, callback_group=self.cb)
@@ -258,6 +261,12 @@ class FleetNode(Node):
                                                    cv2.VideoWriter_fourcc(*"mp4v"), 2.0 / max(self.g("replan_period"), 0.1) / 2,
                                                    (img.shape[1], img.shape[0]))
                     self.bev.write(img)
+                    cm = F.costmap_img
+                    if cm is not None:
+                        if self.cmap is None:
+                            self.cmap = cv2.VideoWriter(os.path.join(self.folder, "costmap_raw.mp4"),
+                                                        cv2.VideoWriter_fourcc(*"mp4v"), 4.0, (cm.shape[1], cm.shape[0]))
+                        self.cmap.write(cm)
                     self._publish_paths()
             except Exception as exc:
                 self.get_logger().error(f"round failed: {exc}", throttle_duration_sec=2.0)
@@ -565,6 +574,9 @@ class FleetNode(Node):
             if self.bev is not None:
                 self.bev.release()
                 self._h264(os.path.join(self.folder, "fleet_bev_raw.mp4"), os.path.join(self.folder, "fleet_bev.mp4"))
+            if self.cmap is not None:
+                self.cmap.release()
+                self._h264(os.path.join(self.folder, "costmap_raw.mp4"), os.path.join(self.folder, "costmap.mp4"))
             summarize(self.folder)
             self.get_logger().info(f"saved {self.folder}")
         except Exception as exc:

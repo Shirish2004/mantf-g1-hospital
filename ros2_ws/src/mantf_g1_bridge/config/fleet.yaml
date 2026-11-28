@@ -9,8 +9,13 @@ mantf_fleet:
     m: 12                         # stratified samples per ray
     ray_max: 8.0
     rows: 3000                    # sample pairs per robot per round
-    epochs: 5                     # j per round
-    warmup_epochs: 30             # first round
+    epochs: 50                    # j per call (aniANTF frame_epoch)
+    warmup_epochs: 50             # first call
+    others_k: 6                   # K nearest other agents (robots + people) per row, pooled by the network
+    detect: true                  # SE(2) trackers on people (anisotropic metric + swept labels)
+    dyn_gap: 0.3                  # s between the three virtual scans; detection floor 0.10/gap m/s
+    se2_horizon: 1.0              # s of tracked motion swept by lam and the labels
+    sweep: true
     frame_buffer: 20              # memory M frames mixed into every batch
     horizon: 5.0                  # m, local viewpoint candidates (sensor range); wider only when none
     fourier_scale: 1.0            # x mantf's Fourier feature frequencies (B); >1 resolves thinner walls

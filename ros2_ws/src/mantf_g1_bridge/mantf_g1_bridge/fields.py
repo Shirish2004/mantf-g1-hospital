@@ -1,16 +1,17 @@
-"""One Active NTFields model (arXiv 2410.09883, Alg. 1) shared by a fleet: mantf's network with the other agent as input.
+"""One Active NTFields model (arXiv 2410.09883, Alg. 1) shared by a fleet: mantf's n-agent network (the set of other
+agents pooled as input) with aniANTF's SE(2) tracker and anisotropic metric A = I - lam u u^T.
 
-Round-robin calls, agent 1, 2, ..., N, 1, ...: the calling agent shares its x, y, lidar and plan -> its N x m samples
-(each row with the agent nearest to it) -> j epochs on the single model (memory M holds every agent's frames) -> that
-agent's next viewpoint and Eq. 11 path, given the other agents' shared positions and plans.
+Round-robin calls, agent 1, 2, ..., N, 1, ...: the calling agent shares its x, y, lidar and plan -> its tracker
+differences three scans for moving people -> its N x m samples (each row with the K agents nearest to it, labels
+tightened by the people's swept tubes) -> j epochs on the single model -> that agent's next viewpoint and Eq. 11 path.
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 import threading
 import os
-import pickle
 import sys
 import time
 import types
@@ -55,9 +56,12 @@ finally:
 
 
 class FieldModel(md.Model):
-    def __init__(self, folder, device, scale, robot_radius, other_radius, frame_buffer=20, fourier_scale=1.0):
+    def __init__(self, folder, device, scale, robot_radius, other_radius, frame_buffer=20, fourier_scale=1.0, others_k=6):
         super().__init__(folder, 3, scale, md.EXPLORATION, renderer=None, device=device,
                          radius=0.5 * (robot_radius + other_radius) / scale)
+        self.n_others = int(others_k)
+        self.row = md.row_width(self.dim, self.n_others + 1)
+        self.ocol = 2 * self.dim + 2
         if fourier_scale != 1.0:
             # mantf's Fourier features B ~ 0.5 N(0, 1) per model unit; a larger workspace per unit needs higher
             # frequencies to resolve the same wall thickness. Same network, same init, only B scaled.
@@ -87,8 +91,8 @@ class FieldModel(md.Model):
         for e in range(int(epoch)):
             self.epoch += 1
             self.optimizer.param_groups[0]["lr"] = 5e-4
-            self.prev_state_queue.append(pickle.loads(pickle.dumps(self.network.state_dict())))
-            self.prev_optimizer_queue.append(pickle.loads(pickle.dumps(self.optimizer.state_dict())))
+            self.prev_state_queue.append({k: v.detach().clone() for k, v in self.network.state_dict().items()})
+            self.prev_optimizer_queue.append(copy.deepcopy(self.optimizer.state_dict()))
             if len(self.prev_state_queue) > 5:
                 self.prev_state_queue.pop(0)
                 self.prev_optimizer_queue.pop(0)
@@ -100,7 +104,7 @@ class FieldModel(md.Model):
                         break
                     data = data[0].to(self.Params["Device"])
                     points = data[:, :6]
-                    others = self.augment_others(points, data[:, 8:])
+                    others = self.augment_others(points, self.unpack_others(data[:, self.ocol:]))
                     speed = self.agent_speed(points, data[:, 6:8], others)
                     speed = speed * speed * (2 - speed) * (2 - speed)
                     speed = self.alpha * speed + 1 - self.alpha
@@ -128,8 +132,8 @@ class FieldModel(md.Model):
 
 
 class Logger:
-    TRAIN = ["wall_time", "round", "agent", "epoch", "epochs", "loss", "diff", "robots", "rows", "people", "min_robot_gap",
-             "min_people_gap", "train_s"]
+    TRAIN = ["wall_time", "t", "round", "agent", "epoch", "epochs", "loss", "diff", "robots", "rows", "people", "min_robot_gap",
+             "min_people_gap", "tracks", "track_s", "rows_s", "train_s", "plan_s", "call_s"]
     DIAG = ["wall_time", "round", "eikonal_residual", "speed_mae", "speed_corr", "symmetry_err", "agent_ratio",
             "agent_target_ratio", "time_dist_ratio"]
 
@@ -167,7 +171,8 @@ class CentralField:
 
     def __init__(self, folder, center, size, robots, device="cuda:0", robot_radius=0.32, other_radius=0.25,
                  n_rays=256, m=12, ray_max=8.0, rows=3000, epochs=5, warmup_epochs=30, frame_buffer=20,
-                 grid_res=0.1, tensorboard=True, diag_every=5, plan_step=0.035, fourier_scale=1.0):
+                 grid_res=0.1, tensorboard=True, diag_every=5, plan_step=0.035, fourier_scale=1.0, others_k=6,
+                 detect=True, dyn_gap=0.3, se2_horizon=1.0, sweep=True):
         self.folder = folder
         os.makedirs(folder, exist_ok=True)
         self.center = np.array(center[:2], float)
@@ -178,7 +183,12 @@ class CentralField:
         self.rows, self.epochs, self.warmup = int(rows), int(epochs), int(warmup_epochs)
         self.diag_every = int(diag_every)
         self.plan_step = float(plan_step)   # mantf predict_trajectory2 step (model units); mantf's own plan() uses 0.02
-        self.model = FieldModel(folder, device, self.scale, robot_radius, other_radius, frame_buffer, fourier_scale)
+        self.model = FieldModel(folder, device, self.scale, robot_radius, other_radius, frame_buffer, fourier_scale, others_k)
+        from .dynamic import Movers
+        self.detect, self.sweep = bool(detect), bool(sweep)
+        self.movers = Movers(self.center, self.scale, gap=dyn_gap, person_radius=other_radius, horizon=se2_horizon)
+        self.model.se2_horizon = float(se2_horizon)
+        self.model.trackers = []
         self.fourier_scale = float(fourier_scale)
         self.device = self.model.Params["Device"]
         self.grid = SharedGrid(self.center, self.size, grid_res, self.robots)
@@ -198,7 +208,8 @@ class CentralField:
                    "rows_per_robot": self.rows, "epochs_j": self.epochs, "warmup_epochs": self.warmup,
                    "batch": self.model.Params["Training"]["Batch Size"], "lr": 5e-4, "weight_decay": 0.1,
                    "memory_frames": self.model.frame_buffer_size, "alpha": self.model.alpha,
-                   "fourier_scale": float(fourier_scale), "plan_step": float(plan_step)},
+                   "fourier_scale": float(fourier_scale), "plan_step": float(plan_step), "others_k": int(others_k),
+                   "detect": self.detect, "dyn_gap": float(dyn_gap), "se2_horizon": float(se2_horizon), "sweep": self.sweep},
                   open(os.path.join(folder, "config.json"), "w"), indent=2)
 
     # ---------------------------------------------------------------- frames
@@ -212,10 +223,34 @@ class CentralField:
         return bool(np.all(np.abs(np.asarray(xy[:2]) - self.center) < self.size / 2 - margin))
 
     def _other(self, xy):
+        """None -> one agent far away (Delta ~ the walls-only field); (x, y) or (k, 2) world -> (k, 3) model units."""
         if xy is None:
-            return torch.tensor([FAR, FAR, 0.0])
-        q = self.to_model(xy)
-        return torch.tensor([q[0], q[1], 0.0], dtype=torch.float32)
+            return torch.tensor([[FAR, FAR, 0.0]])
+        q = self.to_model(np.asarray(xy, float).reshape(-1, 2))
+        return torch.as_tensor(np.column_stack((q, np.zeros(len(q)))), dtype=torch.float32)
+
+    def nearest_k(self, pts, others):
+        """(len(pts), K, 3) model-unit rows of the K others nearest each point. Fewer than K are padded by repeating
+        the nearest, which leaves both the max-pooled Delta and the min speed ceiling unchanged."""
+        K = self.model.n_others
+        oth = np.zeros((len(pts), K, 3))
+        oth[..., :2] = FAR
+        if len(others):
+            d = ((np.asarray(pts)[:, None] - others[None]) ** 2).sum(-1)
+            idx = np.argsort(d, axis=1)[:, :K]
+            if idx.shape[1] < K:
+                idx = np.concatenate((idx, np.repeat(idx[:, :1], K - idx.shape[1], 1)), 1)
+            oth[..., :2] = self.to_model(others[idx])
+        return oth
+
+    def track(self, rid, origin, ang, wall, history, t):
+        """rid's tracker on three virtual scans; returns its fresh bodies and their errors against the true people."""
+        if not self.detect:
+            return [], []
+        with self.mlock:
+            bodies = self.movers.observe(rid, origin, ang, wall, history, t)
+            self.model.trackers = list(self.movers.trackers.values())
+            return bodies, self.movers.score(rid, bodies, history, t, self.rounds)
 
     def _drop_agents(self, ends, hit, extra, others):
         """Returns that land on a known agent are not map: agents enter the model as its other-agent input (mantf)."""
@@ -247,17 +282,16 @@ class CentralField:
             return None
         d = cKDTree(surf).query(pts)[0] - self.robot_radius
         pts, d = pts[d > 0], d[d > 0]
+        if self.sweep and self.model.trackers:
+            # aniANTF _swept_augment: a point is slow if a tracked person will pass near it within the horizon
+            d = np.minimum(d, np.maximum(self.movers.swept(pts) - self.robot_radius, 1e-3))
         if len(pts) < 16:
             return None
         speed = np.clip(d, self.dmin, self.dmax) / self.dmax
         sel = self.rng.choice(len(pts), size=2 * self.rows, replace=len(pts) < 2 * self.rows)
         pts, speed = pts[sel], speed[sel]
         a, b = pts[0::2], pts[1::2]
-        oth = np.zeros((self.rows, 3))
-        oth[:, :2] = FAR
-        if len(others):
-            near = others[np.argmin(((a[:, None] - others[None]) ** 2).sum(-1), axis=1)]
-            oth[:, :2] = self.to_model(near)
+        oth = self.nearest_k(a, others).reshape(self.rows, -1)
         z = np.zeros((self.rows, 1))
         return np.hstack((self.to_model(a), z, self.to_model(b), z, speed[0::2, None], speed[1::2, None], oth))
 
@@ -267,6 +301,7 @@ class CentralField:
 
     def _observe(self, scans, robots, people):
         """scans: id -> (origin, ends, hit, extra_hits); robots: id -> (x, y); people: (K, 2). One frame, one training."""
+        t_rows = time.monotonic()
         people = np.asarray(people, float).reshape(-1, 2)
         blocks = []
         for rid, (origin, ends, hit, extra) in scans.items():
@@ -287,6 +322,7 @@ class CentralField:
         if self.rounds > 1 and self.diag_every > 0 and self.rounds % self.diag_every == 0:
             self.diag = self._diagnostics(frame, robots)
             self.log.log("math_log", dict(self.diag, round=self.rounds), "math")
+        rows_s = time.monotonic() - t_rows
         t0 = time.monotonic()
         epochs = self.warmup if self.rounds == 1 else self.epochs
         diff = self.model.train_core(epochs, frame)
@@ -297,8 +333,8 @@ class CentralField:
         self.last = {"round": self.rounds, "agent": ",".join(scans), "epoch": self.model.epoch, "epochs": epochs,
                      "loss": self.model.total_train_loss[-1], "diff": diff, "robots": len(blocks), "rows": len(rows),
                      "people": len(people), "min_robot_gap": min(rg) if rg else float("nan"),
-                     "min_people_gap": float(pg), "train_s": round(time.monotonic() - t0, 3)}
-        self.log.log("train_log", self.last, "train")
+                     "min_people_gap": float(pg), "rows_s": round(rows_s, 3), "train_s": round(time.monotonic() - t0, 3),
+                     "tracks": sum(len(b) for b in self.movers.bodies().values())}
         return self.last
 
     # ---------------------------------------------------------------- the model
@@ -457,7 +493,8 @@ class CentralField:
         m = self.model
         n = min(2000, len(frame))
         f = frame[torch.randperm(len(frame))[:n]]
-        pts, sp, oth = f[:, :6], f[:, 6:8], f[:, 8:]
+        pts, sp = f[:, :6], f[:, 6:8]
+        oth = m.unpack_others(f[:, m.ocol:])
         target = m.agent_speed(pts, sp, oth)
         tt = target * target * (2 - target) * (2 - target)
         tt = m.alpha * tt + 1 - m.alpha
@@ -474,8 +511,10 @@ class CentralField:
         near = pts[:, 3:].clone()
         near[:, 0] += r * torch.cos(th)
         near[:, 1] += r * torch.sin(th)
+        near[:, 2] = 0
         far = torch.full_like(near, FAR)
         far[:, 2] = 0
+        near, far = near[:, None], far[:, None]
         free = sp[:, 1] > 0.6
         m.network.set_others(near)
         s_near = m.Speed(pts).detach()

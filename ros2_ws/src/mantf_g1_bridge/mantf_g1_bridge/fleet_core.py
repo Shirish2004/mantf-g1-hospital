@@ -18,6 +18,7 @@ import cv2
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
+from .dynamic import History, cast_discs, render_costmap
 from .fields import CentralField
 from .maps import VoxelMap, color, field_panel, render_fleet
 from .occupancy import raycast
@@ -74,12 +75,15 @@ class KinBody:
         return hit
 
     def scan(self, discs=(), beams=360, rmax=10.0):
+        """2-D lidar on the true map plus the discs; also returns the walls-only (world bearings, ranges)."""
         x, y, th = self.pose
-        ang, rng = raycast(self.gt, x, y, th, beams, rmax, discs=np.asarray(discs).reshape(-1, 2), disc_r=0.28)
+        ang, wall = raycast(self.gt, x, y, th, beams, rmax)
+        ang = ang + th
+        rng = cast_discs((x, y), ang, wall, discs, 0.28)
         hit = np.isfinite(rng)
         r = np.where(hit, rng, rmax)
-        ends = np.column_stack((x + r * np.cos(ang + th), y + r * np.sin(ang + th)))
-        return (x, y), ends, hit
+        ends = np.column_stack((x + r * np.cos(ang), y + r * np.sin(ang)))
+        return (x, y), ends, hit, (ang, wall)
 
 
 class Robot:
@@ -113,6 +117,12 @@ class Robot:
         self.trail = []
         self.state = "idle"
         self.stats = {"goal": 0, "frontier": 0, "waypoint": 0, "request": 0, "opportunity": 0, "full": 0, "partial": 0, "stuck": 0, "blocked": 0, "nan": 0}
+        self.wall = None
+        self.next_target = None
+        self.next_times = []
+        self.next_missed = 0
+        self.avoid_s = 0.0
+        self.tube_s = 0.0
         self.ctrl = PurePursuit(lookahead=cfg["lookahead"], max_v=cfg["max_v"], max_vy=cfg["max_vy"],
                                 max_w=cfg["max_w"], min_vx=cfg["min_vx"] if kind == "sim" else 0.0,
                                 max_accel=2.0)
@@ -123,9 +133,10 @@ class Robot:
 
 
 class Fleet:
-    MAX_AGENTS = 5
+    MAX_AGENTS = 12
     DEFAULTS = {"robot_radius": 0.32, "other_radius": 0.25, "n_rays": 256, "m": 12, "ray_max": 8.0, "rows": 3000,
-                "epochs": 5, "warmup_epochs": 30, "frame_buffer": 20, "grid_res": 0.1, "horizon": 5.0,
+                "epochs": 50, "warmup_epochs": 50, "frame_buffer": 20, "grid_res": 0.1, "horizon": 5.0,
+                "others_k": 6, "detect": True, "dyn_gap": 0.3, "se2_horizon": 1.0, "sweep": True,
                 "lookahead": 0.7, "max_v": 0.75, "max_vy": 0.35, "max_w": 0.9, "min_vx": 0.36, "goal_tolerance": 0.35,
                 "yaw_tolerance": 0.45, "guard_margin": 0.10, "guard_horizon": 1.2, "plan_clearance": 0.42,
                 "explore": True, "mode": "cooperative", "help": False, "opportunity_range": 18.0, "tensorboard": True, "diag_every": 5, "voxel_res": 0.1, "fourier_scale": 1.0}
@@ -151,7 +162,12 @@ class Fleet:
                                   m=c["m"], ray_max=c["ray_max"], rows=c["rows"], epochs=c["epochs"],
                                   warmup_epochs=c["warmup_epochs"], frame_buffer=max(c["frame_buffer"], 3 * len(self.robots)),
                                   grid_res=c["grid_res"], tensorboard=c["tensorboard"], diag_every=c["diag_every"],
-                                  fourier_scale=c["fourier_scale"])
+                                  fourier_scale=c["fourier_scale"], others_k=c["others_k"], detect=c["detect"],
+                                  dyn_gap=c["dyn_gap"], se2_horizon=c["se2_horizon"], sweep=c["sweep"])
+        self.history = History()
+        json.dump(self.cfg, open(os.path.join(folder, "fleet_cfg.json"), "w"), indent=2)
+        self.costmap_img = None
+        self._last_call_t = None
         self.voxels = VoxelMap(c["voxel_res"])
         self.people = np.zeros((0, 2))
         self.people_trails = {}
@@ -222,7 +238,8 @@ class Fleet:
                 r.episode = {"id": self.n_episodes, "robot": rid, "goal": list(goal), "t0": self.t,
                              "start": list(r.pose) if r.pose is not None else None, "min_wall": 10.0,
                              "min_people": 10.0, "min_robot": 10.0, "dist": 0.0, "last": None,
-                             "stats0": dict(r.stats)}
+                             "stats0": dict(r.stats), "t_goal_seen": None, "avoid0": r.avoid_s, "tube0": r.tube_s,
+                             "next0": len(r.next_times), "missed0": r.next_missed}
 
     # ------------------------------------------------------------- one call of the model (round-robin)
     def forecast(self, rid, ahead=1.0):
@@ -236,7 +253,8 @@ class Fleet:
         return tuple(lookahead_point(r.path, r.pose[0], r.pose[1], self.cfg["max_v"] * ahead))
 
     def other_for_plan(self, rid, within=6.0):
-        """The model's other-agent input for rid's plan: nearest person (now) or robot (where its plan takes it)."""
+        """The model's other-agent set for rid's plan: the K nearest of the people (now) and the robots (where their
+        shared plans take them in 1 s) within `within` m, nearest first; None when nobody is that close."""
         r = self.robots[rid]
         cands = [np.asarray(self.forecast(k)) for k in self.robots if k != rid and self.robots[k].pose is not None]
         cands += list(self.people)
@@ -244,8 +262,9 @@ class Fleet:
             return None
         c = np.asarray(cands, float).reshape(-1, 2)
         d = np.linalg.norm(c - np.asarray(r.pose[:2]), axis=1)
-        k = int(np.argmin(d))
-        return tuple(c[k]) if d[k] < within else None
+        k = np.argsort(d)[:self.cfg["others_k"]]
+        k = k[d[k] < within]
+        return c[k] if len(k) else None
 
     def active(self, r):
         """An agent takes part in the calls while it has a goal (or explores without one). Once it has reached its
@@ -267,13 +286,23 @@ class Fleet:
         if rid is None:
             return None
         r = self.robots[rid]
+        t_call = time.monotonic()
         with self.lock:
             scan = r.scan
+            wall = r.wall
             robots = self.positions()
             people = self.people.copy()
             self.shared[rid] = {"x": round(r.pose[0], 3), "y": round(r.pose[1], 3), "goal": r.goal_name or r.goal,
                                 "viewpoint": r.viewpoint, "path": None if r.path is None else [list(map(float, q)) for q in r.path[::4]],
                                 "t": round(self.t, 2)}
+        t0 = time.monotonic()
+        if wall is None:
+            # the simulator's lidar sees walls only: its bearings and ranges straight from the scan
+            v = np.asarray(scan[1]) - np.asarray(scan[0])[None]
+            wall = (np.arctan2(v[:, 1], v[:, 0]), np.where(scan[2], np.linalg.norm(v, axis=1), np.inf))
+        bodies, errs = self.field.track(rid, scan[0], wall[0], wall[1], self.history, self.t)
+        track_s = time.monotonic() - t0
+        self._log_rows("tracking_log.csv", errs)
         rec = self.field.observe({rid: scan}, robots, people)
         if rec:
             self.rec = rec
@@ -283,11 +312,49 @@ class Fleet:
             self.requests = {k: q.goal[:2] for k, q in self.robots.items() if q.goal is not None and not g.is_free(q.goal)}
             self.requests.update({f"{k}_stuck": v for k, (t, v) in self.stuck_requests.items()
                                   if self.t - t < 60.0 and self.robots[k].goal is not None})
+        t0 = time.monotonic()
         self.plan_for(r)
+        plan_s = time.monotonic() - t0
+        if rec:
+            rec.update(t=round(self.t, 2), track_s=round(track_s, 3), plan_s=round(plan_s, 3),
+                       call_s=round(time.monotonic() - t_call, 3))
+            self.field.log.log("train_log", rec, "train")
+        self._dynamic_bookkeeping()
         self._view_cache = self.view()   # the shared map at this call, reused by the agents' own-view videos
         if self.gt is not None and self.field.rounds % 16 == 0:
             self.long_range_check(r)
         return rec
+
+    def _log_rows(self, name, rows):
+        if not rows:
+            return
+        path = os.path.join(self.folder, name)
+        new = not os.path.exists(path)
+        with open(path, "a") as f:
+            if new:
+                f.write(",".join(rows[0]) + "\n")
+            for q in rows:
+                f.write(",".join(str(v) for v in q.values()) + "\n")
+
+    def _dynamic_bookkeeping(self):
+        """Per call: time each agent spent inside a tracked person's swept tube (lam > 0.05), the cost map, coverage."""
+        dt = 0.0 if self._last_call_t is None else self.t - self._last_call_t
+        self._last_call_t = self.t
+        pos = {k: r.pose[:2] for k, r in self.robots.items() if r.pose is not None}
+        if self.field.model.trackers and pos:
+            lam, _ = self.field.movers.lam_at(np.asarray(list(pos.values())), self.field.model)
+            for k, l in zip(pos, lam):
+                if l > 0.05 and self.robots[k].goal is not None:
+                    self.robots[k].tube_s += dt
+        if self.field.detect and pos:
+            with self.lock:
+                people = self.people.copy()
+            self.costmap_img = render_costmap(self.field.grid, self.field.movers, self.field.model, pos, people,
+                                              self._gt_mask, title=f"t {self.t:6.1f} round {self.field.rounds}")
+        cov = self.field.grid.coverage()
+        self._log_rows("coverage_log.csv", [{"t": round(self.t, 2), "round": self.field.rounds,
+                                             "known_m2": round(cov["known_m2"], 2),
+                                             "active": sum(1 for q in self.robots.values() if self.active(q))}])
 
     def long_range_check(self, r, n=200, reach=15.0):
         """Does the model's T know the building? Rank correlation of T(q_r, c | o) with the true shortest-path length
@@ -392,6 +459,12 @@ class Fleet:
                     self.event(f"{r.id}: opportunity, the model's path to its goal runs through mapped free space")
         plan_s = time.monotonic() - t0
         gxy, s_here = self.field.heading(r.pose[:2], vp, other)
+        if path is not None and len(path) > 1:
+            # the next position: 1 m along the new plan; reached or superseded by the next call
+            if r.next_target is not None:
+                r.next_missed += 1
+            from .pure_pursuit import lookahead_point
+            r.next_target = (tuple(lookahead_point([tuple(p) for p in path], r.pose[0], r.pose[1], 1.0)), self.t)
         r.stats[kind] += 1
         r.stats[pk] += 1
         with self.lock:
@@ -406,6 +479,8 @@ class Fleet:
                 r.path = None if rest is None else [tuple(q) for q in rest]
             if r.goal is None:
                 r.state = "helping" if helping else "exploring"
+            if kind in ("goal", "opportunity") and r.episode is not None and r.episode.get("t_goal_seen") is None:
+                r.episode["t_goal_seen"] = round(self.t - r.episode["t0"], 2)
             togo = math.hypot(r.goal[0] - r.pose[0], r.goal[1] - r.pose[1]) if r.goal is not None else 0.0
             g_txt = f"g=({r.gxy[0]:+.2f},{r.gxy[1]:+.2f}) S={s_here:.2f}"
             r.label = (f"{r.id} -> {r.goal_name or 'goal'} {togo:.1f} m | {kind} | {g_txt} | path {pk}" if r.goal is not None
@@ -414,7 +489,7 @@ class Fleet:
             r.plan_s = plan_s
         rec_call = {"t": round(self.t, 2), "call": self.turn, "agent": r.id, "pose": [round(v, 3) for v in r.pose],
                     "shared": self.shared.get(r.id), "received": {
-                        "other_agent_input": None if other is None else [round(float(v), 3) for v in other],
+                        "other_agent_input": None if other is None else np.round(other, 3).tolist(),
                         "claimed_viewpoints": [[round(float(v), 2) for v in q] for q in claimed],
                         "requests": {k: [round(float(v), 2) for v in q] for k, q in self.requests.items()},
                         "positions": {k: [round(float(v), 3) for v in q] for k, q in self.positions(r.id).items()},
@@ -432,7 +507,7 @@ class Fleet:
         with open(os.path.join(self.folder, "calls.csv"), "a") as f:
             if new:
                 f.write("t,call,agent,x,y,gx,gy,S,viewpoint_x,viewpoint_y,kind,path,path_points,other_x,other_y,goal\n")
-            o = other if other is not None else (float("nan"), float("nan"))
+            o = other[0] if other is not None else (float("nan"), float("nan"))
             f.write(f"{self.t:.2f},{self.turn},{r.id},{r.pose[0]:.3f},{r.pose[1]:.3f},{r.gxy[0]:.4f},{r.gxy[1]:.4f},"
                     f"{s_here:.3f},{vp[0]:.3f},{vp[1]:.3f},{kind},{pk},{0 if path is None else len(path)},"
                     f"{o[0]:.3f},{o[1]:.3f},{r.goal_name}\n")
@@ -467,11 +542,16 @@ class Fleet:
             pts = scan[1][scan[2]]
             if scan[3] is not None and len(scan[3]):
                 pts = np.vstack((pts, scan[3][:, :2]))
-        cmd, r.clear = safe_velocity(cmd, pose, pts, self.others_of(rid), robot_r=c["robot_radius"],
+        nominal = cmd
+        oth = self.others_of(rid)
+        cmd, r.clear = safe_velocity(cmd, pose, pts, oth, robot_r=c["robot_radius"],
                                      margin=c["guard_margin"] + (0.05 if r.kind == "sim" else 0.0),
                                      horizon=c["guard_horizon"], max_vy=c["max_vy"], physical=r.kind == "sim",
                                      min_move=c["min_vx"] if r.kind == "sim" else 0.05, disc_r=0.40)
         r.cmd = cmd
+        if r.goal is not None and len(oth) and np.linalg.norm(oth - np.asarray(pose[:2]), axis=1).min() < 2.0 \
+                and math.hypot(cmd[0] - nominal[0], cmd[1] - nominal[1]) + abs(cmd[2] - nominal[2]) > 0.05:
+            r.avoid_s += dt
         self._track(r)
         if event:
             self.finish(rid, True)
@@ -504,6 +584,9 @@ class Fleet:
                 r.agent_contacts.append({"t": round(self.t, 2), "with": k, "distance": round(d, 3),
                                          "x": round(r.pose[0], 3), "y": round(r.pose[1], 3)})
                 self.event(f"{r.id}: too close to {k} ({d:.2f} m between centres)")
+        if r.next_target is not None and math.hypot(r.next_target[0][0] - r.pose[0], r.next_target[0][1] - r.pose[1]) < 0.35:
+            r.next_times.append(self.t - r.next_target[1])
+            r.next_target = None
         if ep is None:
             return
         p = np.asarray(r.pose[:2])
@@ -540,7 +623,12 @@ class Fleet:
                "contacts": sum(1 for c in r.contacts if c["t"] >= ep["t0"]),
                "viewpoints": {k: r.stats[k] - ep["stats0"].get(k, 0) for k in r.stats},
                "rounds": self.field.rounds, "math": self.field.diag, "mode": self.cfg["mode"],
-               "goal_name": r.goal_name}
+               "goal_name": r.goal_name, "t_goal_seen_s": ep["t_goal_seen"],
+               "collision_avoidance_s": round(r.avoid_s - ep["avoid0"], 2), "in_tube_s": round(r.tube_s - ep["tube0"], 2),
+               "time_to_next_position_s": round(float(np.mean(r.next_times[ep["next0"]:])), 3)
+               if len(r.next_times) > ep["next0"] else None,
+               "next_positions_reached": len(r.next_times) - ep["next0"],
+               "next_positions_superseded": r.next_missed - ep["missed0"]}
         self.episodes.append(res)
         with open(os.path.join(self.folder, "episodes.json"), "w") as f:
             json.dump(self.episodes, f, indent=2)
@@ -570,14 +658,16 @@ class Fleet:
             if r.body is None:
                 continue
             discs = self.others_of(r.id)
-            org, ends, hit = r.body.scan(discs, rmax=self.cfg["ray_max"] + 2)
+            org, ends, hit, wall = r.body.scan(discs, rmax=self.cfg["ray_max"] + 2)
             with self.lock:
                 r.scan = (org, ends, hit, None)
+                r.wall = wall
             self.voxels.extrude(ends[hit][::2])
 
     def set_people(self, pos):
         with self.lock:
             self.people = np.asarray(pos, float).reshape(-1, 2)
+            self.history.add(self.t, self.people)
             for i, p in enumerate(self.people):
                 tr = self.people_trails.setdefault(i, [])
                 if not tr or np.linalg.norm(np.asarray(tr[-1]) - p) > 0.2:
@@ -740,12 +830,14 @@ class Fleet:
         for k, r in robots.items():
             if r.pose is None:
                 continue
-            S, T, f0 = self.field.field_maps(r.pose[:2], self.nearest_other(k))
+            S, T, f0 = self.field.field_maps(r.pose[:2], self.other_for_plan(k))
             fields[k] = (S, T)
             p = field_panel(S, T, 450)
-            cv2.putText(p, f"field of {k} (nearest agent as input)", (6, 440), 0, 0.5, (255, 255, 255), 1)
+            cv2.putText(p, f"field of {k} (nearest agents as input)", (6, 440), 0, 0.5, (255, 255, 255), 1)
             panels.append(p)
         cv2.imwrite(os.path.join(out, f"{tag}_fleet.png"), fleet)
+        if self.costmap_img is not None:
+            cv2.imwrite(os.path.join(out, f"{tag}_costmap.png"), self.costmap_img)
         if panels:
             cv2.imwrite(os.path.join(out, f"{tag}_fields.png"), np.vstack(panels))
         np.savez_compressed(os.path.join(out, f"{tag}.npz"), logodds=g.logodds, seen=g.seen, robots=np.array(g.robots),
@@ -819,5 +911,63 @@ def summarize(folder):
             lines.append(f"| {k} | {a['goal'] or '-'} | {ok} | {a['calls']} | {a['mean_s_between_own_calls']} | {a['mean_plan_s']} | "
                          f"{a['contacts']} | {a.get('agent_contacts', '-')} | {a['contact_s']} | {a['min_wall_clearance_center_m']} | {a['path_m']} | "
                          f"{a['map_cells_m2']} | {v['goal']}/{v['opportunity']}/{v['frontier']}/{v.get('waypoint', 0)}/{v['request']} |")
+    res = results_json(folder, cfg, eps, rows)
+    lines += ["", "## Experiment metrics (results.json)", "", "```", json.dumps({k: v for k, v in res.items() if k != "agents"},
+                                                                                indent=2), "```"]
     open(os.path.join(folder, "results.md"), "w").write("\n".join(lines) + "\n")
     return os.path.join(folder, "results.md")
+
+
+def results_json(folder, cfg, eps, rows):
+    """The metrics of the evaluation table, one file per run."""
+    import csv
+
+    def table(name):
+        p = os.path.join(folder, name)
+        return list(csv.DictReader(open(p))) if os.path.exists(p) else []
+
+    def stat(rs, k, fn=np.nanmean):
+        v = [float(r[k]) for r in rs if r.get(k) not in ("", None, "nan")]
+        return round(float(fn(v)), 4) if v else None
+
+    fc = json.load(open(os.path.join(folder, "fleet_cfg.json"))) if os.path.exists(os.path.join(folder, "fleet_cfg.json")) else {}
+    trk, cov = table("tracking_log.csv"), table("coverage_log.csv")
+    explore = None
+    if cov:
+        k = [float(r["known_m2"]) for r in cov]
+        t = [float(r["t"]) for r in cov]
+        explore = round(next(ti for ti, ki in zip(t, k) if ki >= 0.9 * k[-1]) - t[0], 2)
+    agents = {}
+    for e in eps:
+        agents.setdefault(e["robot"], []).append({q: e.get(q) for q in (
+            "success", "reason", "time_s", "path_m", "mean_speed", "min_people_m", "min_robot_m", "contacts", "t_goal_seen_s",
+            "collision_avoidance_s", "in_tube_s", "time_to_next_position_s", "next_positions_reached",
+            "next_positions_superseded")})
+    first = [a[0] for a in agents.values()]
+    ok = [a for a in first if a["success"]]
+    tl = table("train_log.csv")
+    return_ = {
+        "run": os.path.basename(folder), "n_agents": len(cfg["robots"]), "mode": fc.get("mode"),
+        "detect": cfg.get("detect"), "sweep": cfg.get("sweep"), "epochs_per_call": cfg.get("epochs_j"),
+        "others_k": cfg.get("others_k"), "robot_max_v_mps": fc.get("max_v"), "people_speed_mps": fc.get("people_speed"),
+        "people": fc.get("people"), "seed": fc.get("seed"), "spread_m": fc.get("spread"),
+        "reached": f"{len(ok)}/{len(first)}",
+        "time_to_complete_s": max(a["time_s"] for a in first) if first and len(ok) == len(first) else None,
+        "time_to_reach_s": {k: a[0]["time_s"] if a[0]["success"] else None for k, a in agents.items()},
+        "mean_time_to_reach_s": round(float(np.mean([a["time_s"] for a in ok])), 2) if ok else None,
+        "exploration_time_s": explore, "known_m2": float(cov[-1]["known_m2"]) if cov else None,
+        "collision_avoidance_s": {k: a[0]["collision_avoidance_s"] for k, a in agents.items()},
+        "in_tube_s": {k: a[0]["in_tube_s"] for k, a in agents.items()},
+        "time_to_next_position_s": {k: a[0]["time_to_next_position_s"] for k, a in agents.items()},
+        "wall_contacts": sum(a["contacts"] or 0 for a in first),
+        "min_people_m": min((a["min_people_m"] for a in first), default=None),
+        "min_robot_m": min((a["min_robot_m"] for a in first), default=None),
+        "se2_tracking": {"samples": len(trk), "pos_err_mean_m": stat(trk, "pos_err_m"),
+                         "pos_err_median_m": stat(trk, "pos_err_m", np.nanmedian), "vel_err_mean_mps": stat(trk, "vel_err_mps"),
+                         "heading_err_mean_deg": stat(trk, "heading_err_deg"), "speed_est_mean_mps": stat(trk, "speed_est"),
+                         "speed_gt_mean_mps": stat(trk, "speed_gt")},
+        "clock_s": {k: stat(tl, k) for k in ("track_s", "rows_s", "train_s", "plan_s", "call_s")},
+        "calls": len(tl), "agents": agents,
+    }
+    json.dump(return_, open(os.path.join(folder, "results.json"), "w"), indent=2)
+    return return_

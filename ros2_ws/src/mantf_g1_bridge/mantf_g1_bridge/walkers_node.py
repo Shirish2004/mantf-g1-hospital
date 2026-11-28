@@ -17,7 +17,7 @@ from .occupancy import GridMap
 from .ros_util import cloud_xy, xy_cloud
 
 
-def make_lanes(grid, box, n, seed=0, clear=0.55, min_len=5.0, max_len=14.0):
+def make_lanes(grid, box, n, seed=0, clear=0.55, min_len=5.0, max_len=14.0, speed=0.0):
     edt = distance_transform_edt(~grid.data) * grid.resolution
     rng = np.random.default_rng(seed)
     lanes = []
@@ -45,7 +45,8 @@ def make_lanes(grid, box, n, seed=0, clear=0.55, min_len=5.0, max_len=14.0):
         mid = (a + b) / 2
         if np.linalg.norm(b - a) < min_len or any(np.linalg.norm(mid - (l[0] + l[1]) / 2) < 3.0 for l in lanes):
             continue
-        lanes.append((a, b, float(rng.uniform(0.5, 0.9))))
+        v = float(rng.uniform(0.5, 0.9))
+        lanes.append((a, b, speed if speed > 0 else v))
     return lanes
 
 
@@ -97,13 +98,14 @@ class Walkers(Node):
         p("box", [6.5, -24.0, 31.0, -5.0])
         p("count", 5)
         p("seed", 3)
+        p("speed", 0.0)
         p("radius", 0.25)
         p("rate", 20.0)
         p("frame", "map")
         g = lambda k: self.get_parameter(k).value  # noqa: E731
         self.r = float(g("radius"))
         self.frame = g("frame")
-        lanes = make_lanes(GridMap.from_yaml(g("map_yaml")), g("box"), int(g("count")), int(g("seed")))
+        lanes = make_lanes(GridMap.from_yaml(g("map_yaml")), g("box"), int(g("count")), int(g("seed")), speed=float(g("speed")))
         self.people = People(lanes, int(g("seed")))
         self.robots = np.zeros((0, 2))
         self.create_subscription(PointCloud2, "/mantf/fleet_poses", lambda m: setattr(self, "robots", cloud_xy(m)),

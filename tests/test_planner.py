@@ -171,8 +171,27 @@ def test_finished_agent_stops_and_leaves_the_calls(tmp_path):
     assert np.allclose(f.robots["b"].pose, pose_b) and f.robots["b"].cmd == (0.0, 0.0, 0.0)   # it does not move any more
 
 
-def test_at_most_five_agents(tmp_path):
+def test_at_most_twelve_agents(tmp_path):
     from mantf_g1_bridge.fleet_core import Fleet
-    robots = [(f"k{i}", "kin", (float(i), -3.0, 0.0)) for i in range(6)]
+    robots = [(f"k{i}", "kin", (float(i), -3.0, 0.0)) for i in range(13)]
     with pytest.raises(ValueError):
         Fleet(str(tmp_path), (0.0, 0.0, 12.0), robots, corridor(), "cpu", tensorboard=False)
+
+
+def test_cast_discs_matches_raycast():
+    from mantf_g1_bridge.dynamic import cast_discs
+    g = corridor()
+    ang, wall = raycast(g, -3.0, 0.0, 0.0, beams=16, rmax=10.0)
+    rng = cast_discs((-3.0, 0.0), ang, wall, [(-1.5, 0.0)], 0.25)
+    _, ref = raycast(g, -3.0, 0.0, 0.0, beams=16, rmax=10.0, discs=[(-1.5, 0.0)], disc_r=0.25)
+    assert rng[8] == pytest.approx(1.25, abs=1e-6) and abs(ref[8] - 1.25) < 0.05
+    assert np.allclose(rng[[0, 4, 12]], wall[[0, 4, 12]])
+
+
+def test_people_history():
+    from mantf_g1_bridge.dynamic import History
+    h = History()
+    for t in np.arange(0, 2.01, 0.1):
+        h.add(t, [[t, 0.0], [0.0, -2 * t]])
+    assert h.at(1.05) == pytest.approx(np.array([[1.05, 0.0], [0.0, -2.1]]))
+    assert h.velocity(2.0) == pytest.approx(np.array([[1.0, 0.0], [0.0, -2.0]]))
