@@ -137,7 +137,7 @@ class FleetNode(Node):
             self.create_subscription(PointCloud2, g("cloud_topic"), self._on_cloud, qos_profile_sensor_data, callback_group=self.cb)
             self.create_subscription(Image, g("camera_topic"), self._on_rgb, qos_profile_sensor_data, callback_group=self.cb)
             self.create_subscription(Image, g("depth_topic"), self._on_depth, qos_profile_sensor_data, callback_group=self.cb)
-        self.create_subscription(PointCloud2, g("agents_topic"), lambda m: F.set_people(cloud_xy(m)),
+        self.create_subscription(PointCloud2, g("agents_topic"), lambda m: F.set_people(cloud_xy(m), Time.from_msg(m.header.stamp).nanoseconds * 1e-9),
                                  qos_profile_sensor_data, callback_group=self.cb)
         self.servers = []
         for k in F.robots:

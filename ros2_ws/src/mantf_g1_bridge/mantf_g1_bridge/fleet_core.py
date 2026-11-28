@@ -300,7 +300,8 @@ class Fleet:
             # the simulator's lidar sees walls only: its bearings and ranges straight from the scan
             v = np.asarray(scan[1]) - np.asarray(scan[0])[None]
             wall = (np.arctan2(v[:, 1], v[:, 0]), np.where(scan[2], np.linalg.norm(v, axis=1), np.inf))
-        bodies, errs = self.field.track(rid, scan[0], wall[0], wall[1], self.history, self.t)
+        th = self.history.buf[-1][0] if self.history.buf else self.t
+        bodies, errs = self.field.track(rid, scan[0], wall[0], wall[1], self.history, th)
         track_s = time.monotonic() - t0
         self._log_rows("tracking_log.csv", errs)
         rec = self.field.observe({rid: scan}, robots, people)
@@ -664,10 +665,11 @@ class Fleet:
                 r.wall = wall
             self.voxels.extrude(ends[hit][::2])
 
-    def set_people(self, pos):
+    def set_people(self, pos, stamp=None):
+        """stamp: the message's sim time; the fleet clock lags while a call holds the interpreter."""
         with self.lock:
             self.people = np.asarray(pos, float).reshape(-1, 2)
-            self.history.add(self.t, self.people)
+            self.history.add(self.t if stamp is None else stamp, self.people)
             for i, p in enumerate(self.people):
                 tr = self.people_trails.setdefault(i, [])
                 if not tr or np.linalg.norm(np.asarray(tr[-1]) - p) > 0.2:
