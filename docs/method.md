@@ -12,7 +12,8 @@ goal. They map the building and plan their motion with **one** physics-informed 
 
 - the Active Neural Time Fields method (Liu, Ni, Qureshi, *Active Neural Time Fields for Physics-Informed Robot
   Mapping and Planning*, arXiv 2410.09883; `references/2410.09883v2.pdf`), single-agent in the paper;
-- extended to several agents by the mantf model (`../mantf/models/model_igibson_n.py`, used unchanged).
+- extended to several agents and moving people by the mantf model (`mantf/models/model_igibson_n.py`, branch
+  `fullstack`).
 
 The agents share their x, y and their plans with that single model, and the model uses them when it plans for each
 agent.
@@ -36,13 +37,50 @@ S(q)        = 1 / |grad_q T|                                                (lea
 L           = ( sqrt(S*' * |grad T|) - 1 )^2                                (eikonal loss, Eq. 12; S*' = mantf transform)
 ```
 
-Training uses AdamW (lr 5e-4, weight decay 0.1), batches of 2000 and j = 5 epochs per new frame, on
+Training uses AdamW (lr 5e-4, weight decay 0.1), batches of 2000 and j = 50 epochs per new frame, on
 `B_j = sample(M) ∪ frame` (memory M of earlier frames, mantf `randomize_data`). M keeps the most recent 600 frames, so
 long runs fit in GPU memory; the paper keeps all of them. Half of each batch gets a random
 other agent near one end (mantf `augment_others`), so the model learns agents everywhere.
 
 Planning (paper Eq. 11): bidirectional gradient descent of T from both ends (mantf `predict_trajectory2`). The first
 step of that descent, `(gx, gy) = -grad_q T(q, target | o) / |.|`, is the direction in which the agent should move.
+
+## n agents as input, and moving people (mantf `fullstack`)
+
+The network takes the **set** of other agents: each row of a frame carries the K = 6 robots and people nearest to its
+start point, every one read by the same branch and max-pooled (mantf nagents), so one network serves any count.
+Fewer than K are padded by repeating the nearest, which changes neither the pooled `Delta` nor the speed ceiling
+`min_o clip(|q - o| - 2r)`. Plans get the K nearest people (now) and robots (where their shared plans put them in 1 s).
+
+### Moving people: SE(2) tracker
+
+Each agent has its own tracker (mantf aniANTF, `models/se2_dynamic.py`). At each of its calls the people are
+ray-cast as 0.25 m discs into the agent's walls-only scan at t - 2g, t - g and t from its current origin
+(g = 0.3 s): the tracker's three-scans-from-one-pose protocol, so only what moved shortens a ray. Rays shorter by
+more than 0.10 m are split into bodies; two centroids under one baseline give a twist `xi = (c1 - c0)/(t1 - t0)`.
+
+```
+lam(x)  = 0.8 max(0, 1 - clr(x)/0.5 m),  clr = distance to the body's swept tube over the next 1 s
+A       = I - lam u u^T,                 u = direction of the body's twist
+L, S, Gradient use <a, A b> = <a, b> - lam <a, u><b, u>   (lam = 0: the isotropic field exactly)
+S*(q)   = min(S*(q), clip(swept clearance - r_robot, dmin, dmax)/dmax)        (swept-tube labels)
+```
+
+So travel along a person's path is dear and crossing it is cheap, and ground a person is walking into is slow
+before they get there. The cost map (`costmap.mp4`, `maps/*_costmap.png`) shows `lam` over the shared map with each
+tracker's bodies and twists against the true people.
+
+### Clocks and metrics per run (`results.json`)
+
+| metric | how |
+|---|---|
+| SE(2) tracking accuracy | every fresh body vs its nearest true person: centroid, twist and heading error (`tracking_log.csv`) |
+| time to complete / to reach | episode sim time per agent; the last one when all reached |
+| collision-avoidance time | sim time the guard changed an agent's command with another body within 2 m |
+| in-tube time | sim time an agent spent where `lam > 0.05` |
+| time to next position | from a call until the agent is within 0.35 m of the point 1 m along its new plan |
+| exploration time | until the shared map holds 90 % of its final area (`coverage_log.csv`) |
+| clock per call | track, rows, train, plan, total (`train_log.csv`) |
 
 ## Centralised round-robin calls (multi-agent)
 

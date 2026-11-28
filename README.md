@@ -17,8 +17,8 @@ call k -> agent (k mod N): shares x, y, lidar, plan  ->  one model trains on it 
 - One model, one shared 2-D and 3-D map, centralised round-robin calls (agent 1, 2, ..., N, 1, ...).
 - Two cases with the same model and sharing: `cooperative` (arrival time + goal distance + others' plans)
   and `greedy` (straight for the agent's own goal).
-- 1 to 5 agents (one simulated G1 + up to 4 kinematic G1 teammates), each with its own start and goal
-  (`config/arrangement_1.yaml` ... `arrangement_5.yaml`). An agent that reaches its goal stops and leaves the calls
+- 1 to 12 agents (one simulated G1 + up to 11 kinematic G1 teammates), each with its own start and goal
+  (`config/arrangement_1.yaml` ... `arrangement_12.yaml`). An agent that reaches its goal stops and leaves the calls
   (N agents -> N - 1 calls per cycle); the others still see it as an obstacle.
 - People walk through the hospital; the model treats them as other agents. In Isaac they are animated characters,
   and ceiling lights are added where the stage has none.
@@ -50,7 +50,7 @@ mg1 test                                             # should end with "10 passe
 
 | submodule | repository | pinned |
 |---|---|---|
-| `mantf/` | [gatetub/mantf](https://github.com/gatetub/mantf) | `main` @ 6f48759 (used unchanged) |
+| `mantf/` | [gatetub/mantf](https://github.com/gatetub/mantf) | `fullstack` (nagents + aniANTF SE(2) tracker) |
 | `WardZero/` | [Bkrakshith/hospital-sim](https://github.com/Bkrakshith/hospital-sim) | `v3.1` @ 05e4e3b |
 
 Already have `../mantf` and `../WardZero` next to this repository? Then the submodules are optional. The scripts
@@ -85,6 +85,22 @@ robots:
   k1: {start: corridor_theatre, goal: pre_op}     # kinematic G1 teammates (up to 4)
   k2: {start: scrub_room, goal: theatre_door}
 ```
+
+## Evaluation (n agents + moving-object tracker)
+
+The model is mantf's `fullstack` branch: the set of other agents (K = 6 nearest robots and people) pooled as the
+network's input, and one SE(2) tracker per agent that finds moving people from its lidar and bends the field with
+the anisotropic metric `A = I - lam u u^T` (see [How it works](docs/method.md#moving-people-se2-tracker)). 50 epochs
+per call.
+
+```bash
+export MANTF_ROOT=$PWD/mantf                       # the in-repo fullstack checkout (overrides a global ../mantf)
+bash scripts/run_experiments.sh                    # all groups in Isaac: agents (n=2..12), speed, spread, explore
+bash scripts/run_experiments.sh speed --sim offline
+pixi run python scripts/analyze_experiments.py     # charts + summary.md in runs/isaac/cooperative/exp/report/
+```
+
+Results: [docs/experiments.md](docs/experiments.md).
 
 ## All commands
 
