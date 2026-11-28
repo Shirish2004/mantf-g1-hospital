@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
-# run_case.sh cooperative|greedy mujoco|isaac|offline [--arrangement FILE] [--timeout S] [--domain N] [-- stack options]
+# run_case.sh cooperative|greedy mujoco|isaac|offline [--arrangement FILE] [--timeout S] [--domain N] [--tag NAME] [-- stack options]
 # Brings the stack up, sends every agent its goal from the arrangement, waits until all are done, stops (the fleet saves
 # maps, 3-D map, trajectories, videos, results.md) and prints the results.
 # Runs land in runs/<sim>/<case>/<arrangement>/<time>/.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CASE="${1:-cooperative}"; SIM="${2:-mujoco}"; shift 2 || true
-ARR="$ROOT/config/arrangement.yaml"; TIMEOUT=900; DOMAIN="${ROS_DOMAIN_ID:-2}"; MORE=()
+ARR="$ROOT/config/arrangement.yaml"; TIMEOUT=900; DOMAIN="${ROS_DOMAIN_ID:-2}"; MORE=(); TAG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --arrangement) ARR="$(realpath "$2")"; shift ;;
     --timeout) TIMEOUT="$2"; shift ;;
     --domain) DOMAIN="$2"; shift ;;
+    --tag) TAG="$2"; shift ;;
     --) shift; MORE=("$@"); break ;;
     *) MORE+=("$1") ;;
   esac
   shift
 done
-RUNS="$ROOT/runs/$SIM/$CASE/$(basename "$ARR" .yaml)"
+RUNS="$ROOT/runs/$SIM/$CASE/${TAG:-$(basename "$ARR" .yaml)}"
 PIX=(pixi run --manifest-path "$ROOT/pixi.toml")
 if [ "$SIM" = offline ]; then
   exec "${PIX[@]}" python "$ROOT/scripts/fleet_offline.py" --mode "$CASE" --arrangement "$ARR" --max-time "$TIMEOUT" \

@@ -11,7 +11,7 @@ export HG1_ROOT
 STAGE=nav
 case "${1:-}" in scene|robot|nav|mission) STAGE="$1"; shift ;; esac
 BACKEND=mujoco; ISAAC_MODE=--gui; PEOPLE=5; RVIZ=1; VIEWER=1; MJVIEW=true; SPAWN=""; EXTRA=()
-ARR="$ROOT/config/arrangement.yaml"; MODE=cooperative; RUNS=""
+ARR="$ROOT/config/arrangement.yaml"; MODE=cooperative; RUNS=""; PSPEED=0.0; DETECT=true; SEED=0; SPREAD=0.0
 while [ $# -gt 0 ]; do
   case "$1" in
     --isaac) BACKEND=isaac ;;
@@ -25,10 +25,14 @@ while [ $# -gt 0 ]; do
     --runs) RUNS="$2"; shift ;;
     --people) PEOPLE="$2"; shift ;;
     --no-walkers|--no-people) PEOPLE=0 ;;
+    --people-speed) PSPEED="$2"; shift ;;
+    --no-detect) DETECT=false ;;
+    --seed) SEED="$2"; shift ;;
+    --spread) SPREAD="$2"; shift ;;
     --no-rviz) RVIZ=0 ;;
     --no-viewer) VIEWER=0 ;;
     --no-mjviewer) MJVIEW=false ;;
-    -h|--help) sed -n 2,6p "$0"; echo "options: --mujoco|--isaac|--isaac-headless|--kinematic --domain N --spawn NAME|x,y,yaw --arrangement FILE --mode cooperative|greedy --runs DIR --people N --no-rviz --no-viewer --no-mjviewer"; exit 0 ;;
+    -h|--help) sed -n 2,6p "$0"; echo "options: --mujoco|--isaac|--isaac-headless|--kinematic --domain N --spawn NAME|x,y,yaw --arrangement FILE --mode cooperative|greedy --runs DIR --people N --people-speed V --no-detect --seed S --spread R --no-rviz --no-viewer --no-mjviewer"; exit 0 ;;
     *) EXTRA+=("$1") ;;
   esac
   shift
@@ -122,14 +126,15 @@ sleep 5
 [ "$VIEWER" = 1 ] && bg viewer "${PIX[@]}" python -m mantf_g1_bridge.sensor_viewer --ros-args -p use_sim_time:=$SIMT \
   -p title:="G1 sensors ($BACKEND, domain $ROS_DOMAIN_ID)"
 if [ "$STAGE" = nav ] || [ "$STAGE" = mission ]; then
-  [ "$PEOPLE" -gt 0 ] && bg people "${PIX[@]}" python -m mantf_g1_bridge.walkers_node --ros-args -p use_sim_time:=$SIMT -p count:=$PEOPLE
+  [ "$PEOPLE" -gt 0 ] && bg people "${PIX[@]}" python -m mantf_g1_bridge.walkers_node --ros-args -p use_sim_time:=$SIMT -p count:=$PEOPLE -p speed:=$PSPEED
   ROBOTS="$(python3 "$ROOT/scripts/arrangement.py" "$ARR" robots)"
   AG="$(python3 "$ROOT/scripts/arrangement.py" "$ARR" teammates)"
   [ -n "$AG" ] && bg teammates bash -c "$WZ ros2 launch mantf_g1_bridge teammates.launch.py agents:=$AG use_sim_time:=$SIMT"
   bg fleet "${PIX[@]}" python -m mantf_g1_bridge.fleet_node --ros-args \
     --params-file "$ROOT/ros2_ws/src/mantf_g1_bridge/config/fleet.yaml" -p use_sim_time:=$SIMT \
     -p map_yaml:="$MANTF_G1_MAP" -p "robots:=[$ROBOTS]" -p mode:=$MODE -p explore:=false \
-    -p runs_dir:="$RUNS" -p arrangement:="$ARR" -p "workspace:=[$(python3 "$ROOT/scripts/arrangement.py" "$ARR" workspace)]"
+    -p runs_dir:="$RUNS" -p arrangement:="$ARR" -p people_speed:=$PSPEED -p people:=$PEOPLE -p detect:=$DETECT \
+    -p seed:=$SEED -p spread:=$SPREAD -p "workspace:=[$(python3 "$ROOT/scripts/arrangement.py" "$ARR" workspace)]"
 fi
 if [ "$STAGE" = mission ]; then
   bg mission "${PIX[@]}" python -m mantf_g1_bridge.pick_place_node --ros-args \

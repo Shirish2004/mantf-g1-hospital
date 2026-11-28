@@ -37,7 +37,11 @@ def main():
     ap.add_argument("--max-time", type=float, default=300.0)
     ap.add_argument("--round", type=float, default=0.2, help="s of simulated time per model call (one agent per call)")
     ap.add_argument("--max-v", type=float, default=0.75)
-    ap.add_argument("--epochs", type=int, default=5)
+    ap.add_argument("--epochs", type=int, default=50)
+    ap.add_argument("--people-speed", type=float, default=0.0, help="m/s of every person (0: 0.5-0.9 per lane)")
+    ap.add_argument("--no-detect", action="store_true", help="no SE(2) trackers: the isotropic field")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--spread", type=float, default=0.0, help="recorded only: teammates' spawn radius of the arrangement")
     ap.add_argument("--out", default=None, help="default runs/offline/<mode>")
     ap.add_argument("--no-video", action="store_true")
     a = ap.parse_args()
@@ -63,13 +67,16 @@ def main():
                                                a.arrangement, "workspace"], text=True).strip()
     ws = [float(v) for v in a.workspace.split(",")]
     dev = "cuda:0" if torch.cuda.is_available() else "cpu"
-    fleet = Fleet(folder, ws, specs, gt, dev, max_v=a.max_v, epochs=a.epochs, mode=a.mode, explore=False,
-                  fourier_scale=a.fourier_scale)
+    np.random.seed(a.seed)
+    torch.manual_seed(a.seed)
+    fleet = Fleet(folder, ws, specs, gt, dev, max_v=a.max_v, epochs=a.epochs, warmup_epochs=a.epochs, mode=a.mode,
+                  explore=False, fourier_scale=a.fourier_scale, detect=not a.no_detect, people_speed=a.people_speed,
+                  people=a.people, seed=a.seed, spread=a.spread)
     for r in fleet.robots.values():
         r.explore = r.id not in goals
     json.dump({"mode": a.mode, "robots": a.robots}, open(os.path.join(folder, "arrangement.json"), "w"), indent=2)
     people = People(make_lanes(gt, [ws[0] - ws[2] / 2 + 2, ws[1] - ws[2] / 2 + 2, ws[0] + ws[2] / 2 - 2,
-                                    ws[1] + ws[2] / 2 - 2], a.people, seed=3), seed=3)
+                                    ws[1] + ws[2] / 2 - 2], a.people, seed=3, speed=a.people_speed), seed=3)
     dt, t, next_round, next_scan, next_view = 0.05, 0.0, 0.0, 0.0, 0.0
     video = None
     for rid, g in goals.items():
