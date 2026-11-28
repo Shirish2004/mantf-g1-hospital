@@ -36,8 +36,8 @@ def main():
     P = places()
     robots = yaml.safe_load(open(path))["robots"]
     items = list(robots.items())
-    if not 1 <= len(items) <= 5:
-        sys.exit(f"{path}: {len(items)} agents; this project supports 1 to 5 (one simulated G1 + up to 4 teammates)")
+    if not 1 <= len(items) <= 12:
+        sys.exit(f"{path}: {len(items)} agents; this project supports 1 to 12 (one simulated G1 + up to 11 teammates)")
     fmt = lambda p: ",".join(f"{a:.4f}" for a in p)  # noqa: E731
     if what == "robots":
         print(", ".join(['"%s:sim"' % items[0][0]] + ['"%s:kin:%s"' % (k, fmt(resolve(v["start"], P))) for k, v in items[1:]]))

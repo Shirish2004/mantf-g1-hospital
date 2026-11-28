@@ -1,0 +1,6 @@
+# arrangement_4 with every teammate spawned within 2.0 m of the G1 (seed 0); mean distance to the G1 1.94 m.
+robots:
+  g1: {start: [8.93, -12.45, 0.00], goal: [26.93, -7.75, 0.00]}
+  k1: {start: [9.67, -14.22, 1.18], goal: [11.93, -8.80, 3.14]}
+  k2: {start: [7.06, -12.97, -0.14], goal: [25.93, -15.65, -1.57]}
+  k3: {start: [10.91, -12.48, -0.02], goal: [30.00, -12.88, 0.00]}
